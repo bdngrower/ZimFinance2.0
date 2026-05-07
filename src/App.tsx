@@ -55,11 +55,11 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (session) {
+    if (session?.user?.id) {
       fetchData();
       fetchYearData();
     }
-  }, [currentMonthId, session]);
+  }, [currentMonthId, session?.user?.id]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -377,21 +377,22 @@ export default function App() {
             <p className="text-white/50 text-sm mt-1">Gerencie seu patrimônio e despesas</p>
           </div>
           
-          <div className="flex items-center gap-4 mt-4 sm:mt-0 bg-black/40 p-2 rounded-2xl border border-white/10">
-            <button onClick={() => setCurrentYear(y => y - 1)} className="p-2 text-white/50 hover:text-white hover:bg-white/10 rounded-xl transition-colors"><ChevronLeft className="w-5 h-5"/></button>
-            <span className="w-16 text-center font-bold text-emerald-400 font-mono">{currentYear}</span>
-            <button onClick={() => setCurrentYear(y => y + 1)} className="p-2 text-white/50 hover:text-white hover:bg-white/10 rounded-xl transition-colors"><ChevronRight className="w-5 h-5"/></button>
-            <div className="w-[1px] h-8 bg-white/10 mx-2"></div>
-            <select 
-              value={currentMonthIndex} 
-              onChange={(e) => setCurrentMonthIndex(Number(e.target.value))}
-              className="bg-transparent text-white font-bold outline-none cursor-pointer p-2 hover:bg-white/5 rounded-xl appearance-none pr-8"
-              style={{ backgroundImage: `url("data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%22//www.w3.org/2000/svg%22%20width%3D%2224%22%20height%3D%2224%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22%23ffffff80%22%20stroke-width%3D%222%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpolyline%20points%3D%226%209%2012%2015%2018%209%22%3E%3C/polyline%3E%3C/svg%3E")`, backgroundRepeat: 'no-repeat', backgroundPosition: 'right 8px center', backgroundSize: '16px' }}
-            >
-              {MONTH_NAMES.map((m, i) => (
-                <option key={m} value={i} className="bg-[#0f1115] text-white">{m}</option>
-              ))}
-            </select>
+          <div className="flex items-center gap-2 mt-4 sm:mt-0 bg-black/40 p-2 rounded-2xl border border-white/10">
+            <button onClick={() => setCurrentYear(y => y - 1)} className="p-2 text-white/50 hover:text-white hover:bg-white/10 rounded-xl transition-colors"><ChevronLeft className="w-4 h-4"/></button>
+            <span className="w-12 text-center font-bold text-emerald-400 font-mono text-sm">{currentYear}</span>
+            <button onClick={() => setCurrentYear(y => y + 1)} className="p-2 text-white/50 hover:text-white hover:bg-white/10 rounded-xl transition-colors"><ChevronRight className="w-4 h-4"/></button>
+            
+            <div className="w-[1px] h-6 bg-white/10 mx-1"></div>
+            
+            <button onClick={() => {
+              if (currentMonthIndex === 0) { setCurrentMonthIndex(11); setCurrentYear(y => y - 1); }
+              else { setCurrentMonthIndex(m => m - 1); }
+            }} className="p-2 text-white/50 hover:text-white hover:bg-white/10 rounded-xl transition-colors"><ChevronLeft className="w-4 h-4"/></button>
+            <span className="w-24 text-center font-bold text-white text-sm">{MONTH_NAMES[currentMonthIndex]}</span>
+            <button onClick={() => {
+              if (currentMonthIndex === 11) { setCurrentMonthIndex(0); setCurrentYear(y => y + 1); }
+              else { setCurrentMonthIndex(m => m + 1); }
+            }} className="p-2 text-white/50 hover:text-white hover:bg-white/10 rounded-xl transition-colors"><ChevronRight className="w-4 h-4"/></button>
           </div>
         </header>
 
@@ -405,24 +406,24 @@ export default function App() {
               
               {/* Top Monthly Stats - Always Visible */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <div className="bg-white/5 backdrop-blur-xl p-6 rounded-3xl border border-white/10 shadow-2xl">
+                <div className="bg-white/5 backdrop-blur-xl p-6 rounded-3xl border border-white/10 shadow-2xl hover:-translate-y-1 hover:border-emerald-500/30 transition-all duration-300 group">
                   <div className="flex items-center justify-between mb-2">
-                    <h3 className="text-white/60 font-bold text-xs uppercase tracking-widest">Receitas do Mês</h3>
-                    <TrendingUp className="w-5 h-5 text-emerald-400" />
+                    <h3 className="text-white/60 font-bold text-xs uppercase tracking-widest group-hover:text-white/80 transition-colors">Receitas do Mês</h3>
+                    <TrendingUp className="w-5 h-5 text-emerald-400 group-hover:scale-110 transition-transform" />
                   </div>
                   <p className="text-3xl font-extrabold text-white font-mono tracking-tight">{formatCurrency(totals.totalIncome)}</p>
                 </div>
-                <div className="bg-white/5 backdrop-blur-xl p-6 rounded-3xl border border-white/10 shadow-2xl">
+                <div className="bg-white/5 backdrop-blur-xl p-6 rounded-3xl border border-white/10 shadow-2xl hover:-translate-y-1 hover:border-rose-500/30 transition-all duration-300 group">
                   <div className="flex items-center justify-between mb-2">
-                    <h3 className="text-white/60 font-bold text-xs uppercase tracking-widest">Gastos do Mês</h3>
-                    <TrendingDown className="w-5 h-5 text-rose-400" />
+                    <h3 className="text-white/60 font-bold text-xs uppercase tracking-widest group-hover:text-white/80 transition-colors">Gastos do Mês</h3>
+                    <TrendingDown className="w-5 h-5 text-rose-400 group-hover:scale-110 transition-transform" />
                   </div>
                   <p className="text-3xl font-extrabold text-white font-mono tracking-tight">{formatCurrency(totals.totalExpenses)}</p>
                 </div>
-                <div className={`p-6 rounded-3xl border shadow-2xl ${totals.totalRemaining >= 0 ? 'bg-emerald-500/10 border-emerald-500/30' : 'bg-rose-500/10 border-rose-500/30'}`}>
+                <div className={`p-6 rounded-3xl border shadow-2xl transition-all duration-300 hover:-translate-y-1 group ${totals.totalRemaining >= 0 ? 'bg-emerald-500/10 border-emerald-500/30 hover:shadow-emerald-500/20' : 'bg-rose-500/10 border-rose-500/30 hover:shadow-rose-500/20'}`}>
                   <div className="flex items-center justify-between mb-2">
-                    <h3 className="text-white/80 font-bold text-xs uppercase tracking-widest">Saldo do Mês</h3>
-                    <DollarSign className={`w-5 h-5 ${totals.totalRemaining >= 0 ? 'text-emerald-400' : 'text-rose-400'}`} />
+                    <h3 className="text-white/80 font-bold text-xs uppercase tracking-widest group-hover:text-white transition-colors">Saldo do Mês</h3>
+                    <DollarSign className={`w-5 h-5 group-hover:scale-110 transition-transform ${totals.totalRemaining >= 0 ? 'text-emerald-400' : 'text-rose-400'}`} />
                   </div>
                   <p className={`text-3xl font-extrabold font-mono tracking-tight ${totals.totalRemaining >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
                     {formatCurrency(totals.totalRemaining)}
