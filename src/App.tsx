@@ -265,14 +265,11 @@ export default function App() {
   const saveCardExpense = async (cardItem: ItemRecord, exp: CardExpense) => {
     await supabase.from('card_expenses').update({ name: exp.name, value: exp.value }).eq('id', exp.id);
     setEditingCardExpenses(prev => ({ ...prev, [exp.id]: false }));
-    // Atualizar total do cartão automaticamente
-    const allExps = cardExpenses[cardItem.id] || [];
-    const updated = allExps.map(e => e.id === exp.id ? exp : e);
-    const total = updated.reduce((s, e) => s + Number(e.value || 0), 0);
-    const isPagamento = cardItem.type === 'card_pagamento';
-    const updatedItem = { ...cardItem, pagamento: isPagamento ? total : 0, vale: isPagamento ? 0 : total };
-    setItems(prev => prev.map(i => i.id === cardItem.id ? updatedItem : i));
-    await supabase.from('items').update({ pagamento: updatedItem.pagamento, vale: updatedItem.vale }).eq('id', cardItem.id);
+    // Apenas atualiza o estado local das despesas - o base (pagamento/vale) não muda
+    setCardExpenses(prev => ({
+      ...prev,
+      [cardItem.id]: (prev[cardItem.id] || []).map(e => e.id === exp.id ? exp : e)
+    }));
     fetchYearData();
   };
 
@@ -280,12 +277,6 @@ export default function App() {
     const remaining = (cardExpenses[cardItem.id] || []).filter(e => e.id !== expId);
     setCardExpenses(prev => ({ ...prev, [cardItem.id]: remaining }));
     await supabase.from('card_expenses').delete().eq('id', expId);
-    // Recalcular total
-    const total = remaining.reduce((s, e) => s + Number(e.value || 0), 0);
-    const isPagamento = cardItem.type === 'card_pagamento';
-    const updatedItem = { ...cardItem, pagamento: isPagamento ? total : 0, vale: isPagamento ? 0 : total };
-    setItems(prev => prev.map(i => i.id === cardItem.id ? updatedItem : i));
-    await supabase.from('items').update({ pagamento: updatedItem.pagamento, vale: updatedItem.vale }).eq('id', cardItem.id);
     fetchYearData();
   };
 
@@ -300,8 +291,17 @@ export default function App() {
   const totals = useMemo(() => {
     const expensesPagamento = items.filter(i => i.type === 'expense_pagamento').reduce((a, c) => a + (Number(c.pagamento)||0), 0);
     const expensesVale = items.filter(i => i.type === 'expense_vale').reduce((a, c) => a + (Number(c.vale)||0), 0);
-    const cardsPagamento = items.filter(i => i.type === 'card_pagamento').reduce((a, c) => a + (Number(c.pagamento)||0), 0);
-    const cardsVale = items.filter(i => i.type === 'card_vale').reduce((a, c) => a + (Number(c.vale)||0), 0);
+    // Base manual do cartão (items.pagamento/vale) + despesas individuais
+    const cardsPagamento = items.filter(i => i.type === 'card_pagamento').reduce((a, c) => {
+      const base = Number(c.pagamento)||0;
+      const expsSum = (cardExpenses[c.id] || []).reduce((s, e) => s + Number(e.value||0), 0);
+      return a + base + expsSum;
+    }, 0);
+    const cardsVale = items.filter(i => i.type === 'card_vale').reduce((a, c) => {
+      const base = Number(c.vale)||0;
+      const expsSum = (cardExpenses[c.id] || []).reduce((s, e) => s + Number(e.value||0), 0);
+      return a + base + expsSum;
+    }, 0);
 
     const totalPagamentoIncome = (Number(income.pagamento)||0) + (Number(income.ferias)||0) + (Number(income.decimoTerceiro)||0);
     const totalValeIncome = (Number(income.vale)||0);
@@ -328,15 +328,19 @@ export default function App() {
       remainingPagamento,
       remainingVale
     };
-  }, [income, items]);
+  }, [income, items, cardExpenses]);
 
   const pieChartData = useMemo(() => {
     const expenses = items.filter(i => i.type.startsWith('expense_') || i.type.startsWith('card_'));
     
-    // Agrupar gastos com o mesmo nome (ex: "CARRO RENATO" no pagamento e no vale)
+    // Agrupar gastos com o mesmo nome; para cartões, soma base + despesas individuais
     const grouped = expenses.reduce((acc, curr) => {
       const name = curr.name?.trim() || 'Sem nome';
-      const totalVal = (Number(curr.pagamento)||0) + (Number(curr.vale)||0);
+      const base = (Number(curr.pagamento)||0) + (Number(curr.vale)||0);
+      const expsSum = curr.type.startsWith('card_')
+        ? (cardExpenses[curr.id] || []).reduce((s, e) => s + Number(e.value||0), 0)
+        : 0;
+      const totalVal = base + expsSum;
       if (totalVal > 0) {
         acc[name] = (acc[name] || 0) + totalVal;
       }
@@ -347,7 +351,7 @@ export default function App() {
     return Object.entries(grouped)
       .map(([name, value]) => ({ name, value: value as number }))
       .sort((a, b) => b.value - a.value);
-  }, [items]);
+  }, [items, cardExpenses]);
 
   if (authLoading) {
     return <div className="min-h-screen bg-[#0f1115] flex items-center justify-center"><Loader2 className="w-10 h-10 animate-spin text-emerald-500" /></div>;
@@ -761,7 +765,9 @@ export default function App() {
                           const isExpanded = expandedCards[item.id];
                           const expenses = cardExpenses[item.id] || [];
                           const hasExpenses = expenses.length > 0;
-                          const autoTotal = expenses.reduce((s, e) => s + Number(e.value || 0), 0);
+                          const baseVal = Number(item[amountField] || 0);
+                          const expsSum = expenses.reduce((s, e) => s + Number(e.value || 0), 0);
+                          const displayTotal = baseVal + expsSum;
                           return (
                             <div key={item.id} className="border-b border-white/5 last:border-0">
                               {/* Cart\u00e3o header row */}
@@ -796,10 +802,10 @@ export default function App() {
                                   <option value="vale" className="bg-[#0f1115] text-indigo-400">Adto</option>
                                 </select>
                                 <span className="text-white/30 text-[10px]">R$</span>
-                                {/* Se tem despesas individuais, mostra total auto-calculado; sen\u00e3o, permite entrada manual */}
+                                {/* Total = base + despesas individuais */}
                                 {hasExpenses ? (
-                                  <span className={`w-16 text-xs font-mono font-bold text-right ${isPagamento ? 'text-emerald-400' : 'text-indigo-400'}`}>
-                                    {autoTotal.toFixed(2)}
+                                  <span className={`w-20 text-xs font-mono font-bold text-right ${isPagamento ? 'text-emerald-400' : 'text-indigo-400'}`}>
+                                    {formatCurrency(displayTotal).replace('R$\u00a0', '')}
                                   </span>
                                 ) : (
                                   <input
