@@ -391,338 +391,337 @@ export default function App() {
             <div className="flex flex-col items-center justify-center h-full">
               <Loader2 className="w-10 h-10 animate-spin text-emerald-500 mb-4" />
             </div>
-          ) : activeView === 'dashboard' ? (
-            <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500 max-w-7xl mx-auto">
+          ) : (
+            <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500 max-w-[1600px] mx-auto">
               
-              {/* Top Monthly Stats */}
+              {/* Top Monthly Stats - Always Visible */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <div className="bg-white/5 backdrop-blur-xl p-6 rounded-3xl border border-white/10">
+                <div className="bg-white/5 backdrop-blur-xl p-6 rounded-3xl border border-white/10 shadow-2xl">
                   <div className="flex items-center justify-between mb-2">
                     <h3 className="text-white/60 font-bold text-xs uppercase tracking-widest">Receitas do Mês</h3>
                     <TrendingUp className="w-5 h-5 text-emerald-400" />
                   </div>
-                  <p className="text-3xl font-extrabold text-white font-mono">{formatCurrency(totals.totalIncome)}</p>
+                  <p className="text-3xl font-extrabold text-white font-mono tracking-tight">{formatCurrency(totals.totalIncome)}</p>
                 </div>
-                <div className="bg-white/5 backdrop-blur-xl p-6 rounded-3xl border border-white/10">
+                <div className="bg-white/5 backdrop-blur-xl p-6 rounded-3xl border border-white/10 shadow-2xl">
                   <div className="flex items-center justify-between mb-2">
                     <h3 className="text-white/60 font-bold text-xs uppercase tracking-widest">Gastos do Mês</h3>
                     <TrendingDown className="w-5 h-5 text-rose-400" />
                   </div>
-                  <p className="text-3xl font-extrabold text-white font-mono">{formatCurrency(totals.totalExpenses)}</p>
+                  <p className="text-3xl font-extrabold text-white font-mono tracking-tight">{formatCurrency(totals.totalExpenses)}</p>
                 </div>
-                <div className={`p-6 rounded-3xl border ${totals.totalRemaining >= 0 ? 'bg-emerald-500/10 border-emerald-500/30' : 'bg-rose-500/10 border-rose-500/30'}`}>
+                <div className={`p-6 rounded-3xl border shadow-2xl ${totals.totalRemaining >= 0 ? 'bg-emerald-500/10 border-emerald-500/30' : 'bg-rose-500/10 border-rose-500/30'}`}>
                   <div className="flex items-center justify-between mb-2">
                     <h3 className="text-white/80 font-bold text-xs uppercase tracking-widest">Saldo do Mês</h3>
                     <DollarSign className={`w-5 h-5 ${totals.totalRemaining >= 0 ? 'text-emerald-400' : 'text-rose-400'}`} />
                   </div>
-                  <p className={`text-3xl font-extrabold font-mono ${totals.totalRemaining >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                  <p className={`text-3xl font-extrabold font-mono tracking-tight ${totals.totalRemaining >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
                     {formatCurrency(totals.totalRemaining)}
                   </p>
                 </div>
               </div>
 
-              {/* Annual Stats & Charts */}
-              <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
-                <div className="xl:col-span-2 bg-white/5 backdrop-blur-xl p-6 rounded-3xl border border-white/10 flex flex-col">
-                  <div className="flex justify-between items-center mb-6">
-                    <h3 className="text-lg font-bold text-white flex items-center">
-                      <TrendingUp className="w-5 h-5 mr-3 text-indigo-400" />
-                      Visão Anual ({currentYear})
-                    </h3>
-                    <div className="flex gap-4 text-xs font-bold text-white/50 uppercase tracking-widest bg-black/20 px-4 py-2 rounded-xl">
-                      <span>Total Receita: <span className="text-emerald-400">{formatCurrency(annualTotals.income)}</span></span>
-                      <span>Total Gasto: <span className="text-rose-400">{formatCurrency(annualTotals.expense)}</span></span>
+              {activeView === 'dashboard' ? (
+                /* Annual Stats & Charts */
+                <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
+                  <div className="xl:col-span-2 bg-white/5 backdrop-blur-xl p-6 rounded-3xl border border-white/10 flex flex-col shadow-2xl">
+                    <div className="flex justify-between items-center mb-6">
+                      <h3 className="text-lg font-bold text-white flex items-center">
+                        <TrendingUp className="w-5 h-5 mr-3 text-indigo-400" />
+                        Visão Anual ({currentYear})
+                      </h3>
+                      <div className="flex gap-4 text-xs font-bold text-white/50 uppercase tracking-widest bg-black/20 px-4 py-2 rounded-xl">
+                        <span>Total Receita: <span className="text-emerald-400">{formatCurrency(annualTotals.income)}</span></span>
+                        <span>Total Gasto: <span className="text-rose-400">{formatCurrency(annualTotals.expense)}</span></span>
+                      </div>
                     </div>
-                  </div>
-                  <div className="flex-1 w-full min-h-[300px]">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <BarChart data={yearData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
-                        <XAxis dataKey="name" stroke="rgba(255,255,255,0.4)" fontSize={12} tickLine={false} axisLine={false} />
-                        <YAxis stroke="rgba(255,255,255,0.4)" fontSize={12} tickFormatter={(val) => `R$${val/1000}k`} tickLine={false} axisLine={false} />
-                        <Tooltip cursor={{ fill: 'rgba(255,255,255,0.05)' }} contentStyle={{ backgroundColor: '#0f1115', borderColor: 'rgba(255,255,255,0.1)', borderRadius: '16px', color: '#fff' }} />
-                        <Legend iconType="circle" wrapperStyle={{ fontSize: '12px', paddingTop: '10px' }} />
-                        <Bar dataKey="Receitas" fill="#10b981" radius={[4, 4, 0, 0]} maxBarSize={40} />
-                        <Bar dataKey="Despesas" fill="#f43f5e" radius={[4, 4, 0, 0]} maxBarSize={40} />
-                      </BarChart>
-                    </ResponsiveContainer>
-                  </div>
-                </div>
-
-                <div className="xl:col-span-1 bg-white/5 backdrop-blur-xl p-6 rounded-3xl border border-white/10 flex flex-col">
-                  <h3 className="text-lg font-bold text-white mb-6 flex items-center">
-                    <PieChartIcon className="w-5 h-5 mr-3 text-emerald-400" />
-                    Maiores Gastos do Mês
-                  </h3>
-                  {pieChartData.length > 0 ? (
                     <div className="flex-1 w-full min-h-[300px]">
                       <ResponsiveContainer width="100%" height="100%">
-                        <PieChart>
-                          <Pie data={pieChartData} cx="50%" cy="50%" innerRadius={60} outerRadius={100} paddingAngle={5} dataKey="value" stroke="none">
-                            {pieChartData.map((entry, index) => (
-                              <Cell key={`cell-${index}`} fill={PIE_COLORS[index % PIE_COLORS.length]} />
-                            ))}
-                          </Pie>
-                          <Tooltip contentStyle={{ backgroundColor: '#0f1115', borderColor: 'rgba(255,255,255,0.1)', borderRadius: '16px', color: '#fff' }} formatter={(val: number) => formatCurrency(val)} />
-                          <Legend layout="horizontal" verticalAlign="bottom" align="center" wrapperStyle={{ fontSize: '11px', color: 'white' }} />
-                        </PieChart>
+                        <BarChart data={yearData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
+                          <XAxis dataKey="name" stroke="rgba(255,255,255,0.4)" fontSize={12} tickLine={false} axisLine={false} />
+                          <YAxis stroke="rgba(255,255,255,0.4)" fontSize={12} tickFormatter={(val) => `R$${val/1000}k`} tickLine={false} axisLine={false} />
+                          <Tooltip cursor={{ fill: 'rgba(255,255,255,0.05)' }} contentStyle={{ backgroundColor: '#0f1115', borderColor: 'rgba(255,255,255,0.1)', borderRadius: '16px', color: '#fff' }} />
+                          <Legend iconType="circle" wrapperStyle={{ fontSize: '12px', paddingTop: '10px' }} />
+                          <Bar dataKey="Receitas" fill="#10b981" radius={[4, 4, 0, 0]} maxBarSize={40} />
+                          <Bar dataKey="Despesas" fill="#f43f5e" radius={[4, 4, 0, 0]} maxBarSize={40} />
+                        </BarChart>
                       </ResponsiveContainer>
                     </div>
-                  ) : (
-                    <div className="flex-1 flex flex-col items-center justify-center text-white/40">
-                      <PieChartIcon className="w-12 h-12 mb-3 opacity-20" />
-                      <p className="text-sm">Nenhum gasto registrado.</p>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-            </div>
-          ) : (
-            <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500 max-w-[1600px] mx-auto">
-              
-              {/* Receitas Master Card */}
-              <div className="bg-white/5 backdrop-blur-xl rounded-3xl border border-white/10 overflow-hidden shadow-2xl">
-                <div className="p-6 border-b border-white/5 flex justify-between items-center bg-white/5">
-                  <h2 className="text-xl font-bold text-white flex items-center">
-                    <div className="bg-emerald-500/20 p-2 rounded-xl mr-3 border border-emerald-500/30">
-                      <TrendingUp className="w-5 h-5 text-emerald-400" />
-                    </div>
-                    Receitas do Mês
-                  </h2>
-                  {editingIncome ? (
-                    <button onClick={saveIncome} className="flex items-center space-x-2 text-emerald-400 bg-emerald-500/20 hover:bg-emerald-500/30 px-5 py-2.5 rounded-xl text-sm font-semibold transition-all shadow-lg">
-                      <Check className="w-4 h-4" /><span>Salvar</span>
-                    </button>
-                  ) : (
-                    <button onClick={() => setEditingIncome(true)} className="flex items-center space-x-2 text-white/50 bg-white/5 hover:text-white hover:bg-white/10 px-5 py-2.5 rounded-xl text-sm font-semibold transition-all">
-                      <Edit2 className="w-4 h-4" /><span>Editar Receitas</span>
-                    </button>
-                  )}
-                </div>
-                <div className="p-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                  {[
-                    { label: "Pagamento Base", field: "pagamento", source: "pagamento", show: true },
-                    { label: "Vale Alimentação", field: "vale", source: "vale", show: true },
-                    { label: "Férias", field: "ferias", source: "pagamento", show: true },
-                    { label: "13º Salário", field: "decimoTerceiro", source: "pagamento", show: currentMonthIndex === 10 || currentMonthIndex === 11 },
-                  ].filter(i => i.show).map((inputMap) => (
-                    <div key={inputMap.field} className={`bg-black/20 p-5 rounded-2xl border transition-all ${editingIncome ? 'border-emerald-500/30 bg-emerald-500/5' : 'border-white/5 hover:border-white/10'}`}>
-                      <label className="flex items-center justify-between text-[11px] font-bold text-white/40 uppercase tracking-widest mb-3">
-                        <span className="flex items-center gap-2">
-                          {inputMap.label}
-                          <span className={`px-2 py-0.5 rounded-full text-[9px] ${inputMap.source === 'pagamento' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-indigo-500/20 text-indigo-400'}`}>{inputMap.source}</span>
-                        </span>
-                        {!editingIncome && <Lock className="w-3 h-3 text-white/20" />}
-                      </label>
-                      <div className="relative flex items-center">
-                        <span className="text-white/40 font-bold mr-2 text-lg">R$</span>
-                        <input 
-                          type="number" 
-                          className={`w-full bg-transparent border-none focus:ring-0 p-0 text-2xl text-white font-mono font-bold outline-none placeholder-white/10 ${!editingIncome && 'opacity-80 cursor-default'}`}
-                          value={income[inputMap.field as keyof typeof income] || ''}
-                          onChange={(e) => updateIncomeLocal(inputMap.field, Number(e.target.value))}
-                          readOnly={!editingIncome}
-                          onWheel={(e) => (e.target as HTMLElement).blur()}
-                          placeholder="0.00"
-                        />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Side-by-side Contas */}
-              <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
-                {/* Pagamento Contas */}
-                <div className="bg-white/5 backdrop-blur-xl rounded-3xl border border-white/10 overflow-hidden shadow-2xl flex flex-col h-full">
-                  <div className="p-6 border-b border-white/5 flex justify-between items-center bg-white/5">
-                    <h2 className="text-lg font-bold flex items-center text-white">
-                      <div className="p-2 rounded-xl mr-3 bg-emerald-500/10 border border-emerald-500/20">
-                        <TrendingDown className="w-5 h-5 text-emerald-400" />
-                      </div>
-                      Contas (Pagamento)
-                    </h2>
-                    <button onClick={() => addItem('expense_pagamento')} className="flex items-center text-white bg-white/10 hover:bg-white/20 px-4 py-2 rounded-xl text-sm font-semibold transition-all">
-                      <Plus className="w-4 h-4 mr-2" /> Adicionar
-                    </button>
                   </div>
-                  <div className="p-6 space-y-4 flex-1">
-                    {items.filter(i => i.type === 'expense_pagamento').map(item => {
-                      const isEdit = editingItems[item.id];
-                      return (
-                        <div key={item.id} className={`flex flex-col sm:flex-row gap-4 items-center p-4 rounded-2xl border transition-all ${isEdit ? 'bg-black/40 border-emerald-500/50' : 'bg-black/20 border-white/5'} group`}>
-                          <input 
-                            type="text" 
-                            value={item.name}
-                            onChange={(e) => updateItemLocal(item.id, 'name', e.target.value)}
-                            readOnly={!isEdit}
-                            className="flex-1 bg-transparent text-sm font-semibold text-white outline-none"
-                            placeholder="Descrição"
-                          />
-                          <div className="flex items-center gap-3">
-                            <div className="flex items-center">
-                              <span className="text-white/40 text-xs mr-1">R$</span>
+
+                  <div className="xl:col-span-1 bg-white/5 backdrop-blur-xl p-6 rounded-3xl border border-white/10 flex flex-col shadow-2xl">
+                    <h3 className="text-lg font-bold text-white mb-6 flex items-center">
+                      <PieChartIcon className="w-5 h-5 mr-3 text-emerald-400" />
+                      Maiores Gastos do Mês
+                    </h3>
+                    {pieChartData.length > 0 ? (
+                      <div className="flex-1 w-full min-h-[300px]">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <PieChart>
+                            <Pie data={pieChartData} cx="50%" cy="50%" innerRadius={60} outerRadius={100} paddingAngle={5} dataKey="value" stroke="none">
+                              {pieChartData.map((entry, index) => (
+                                <Cell key={`cell-${index}`} fill={PIE_COLORS[index % PIE_COLORS.length]} />
+                              ))}
+                            </Pie>
+                            <Tooltip contentStyle={{ backgroundColor: '#0f1115', borderColor: 'rgba(255,255,255,0.1)', borderRadius: '16px', color: '#fff' }} formatter={(val: number) => formatCurrency(val)} />
+                            <Legend layout="horizontal" verticalAlign="bottom" align="center" wrapperStyle={{ fontSize: '11px', color: 'white' }} />
+                          </PieChart>
+                        </ResponsiveContainer>
+                      </div>
+                    ) : (
+                      <div className="flex-1 flex flex-col items-center justify-center text-white/40">
+                        <PieChartIcon className="w-12 h-12 mb-3 opacity-20" />
+                        <p className="text-sm">Nenhum gasto registrado.</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-8">
+                  {/* Receitas Master Card */}
+                  <div className="bg-white/5 backdrop-blur-xl rounded-3xl border border-white/10 overflow-hidden shadow-2xl">
+                    <div className="p-6 border-b border-white/5 flex justify-between items-center bg-white/5">
+                      <h2 className="text-xl font-bold text-white flex items-center">
+                        <div className="bg-emerald-500/20 p-2 rounded-xl mr-3 border border-emerald-500/30">
+                          <TrendingUp className="w-5 h-5 text-emerald-400" />
+                        </div>
+                        Receitas do Mês
+                      </h2>
+                      {editingIncome ? (
+                        <button onClick={saveIncome} className="flex items-center space-x-2 text-emerald-400 bg-emerald-500/20 hover:bg-emerald-500/30 px-5 py-2.5 rounded-xl text-sm font-semibold transition-all shadow-lg">
+                          <Check className="w-4 h-4" /><span>Salvar</span>
+                        </button>
+                      ) : (
+                        <button onClick={() => setEditingIncome(true)} className="flex items-center space-x-2 text-white/50 bg-white/5 hover:text-white hover:bg-white/10 px-5 py-2.5 rounded-xl text-sm font-semibold transition-all">
+                          <Edit2 className="w-4 h-4" /><span>Editar Receitas</span>
+                        </button>
+                      )}
+                    </div>
+                    <div className="p-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                      {[
+                        { label: "Pagamento Base", field: "pagamento", source: "pagamento", show: true },
+                        { label: "Vale Alimentação", field: "vale", source: "vale", show: true },
+                        { label: "Férias", field: "ferias", source: "pagamento", show: true },
+                        { label: "13º Salário", field: "decimoTerceiro", source: "pagamento", show: currentMonthIndex === 10 || currentMonthIndex === 11 },
+                      ].filter(i => i.show).map((inputMap) => (
+                        <div key={inputMap.field} className={`bg-black/20 p-5 rounded-2xl border transition-all ${editingIncome ? 'border-emerald-500/30 bg-emerald-500/5' : 'border-white/5 hover:border-white/10'}`}>
+                          <label className="flex items-center justify-between text-[11px] font-bold text-white/40 uppercase tracking-widest mb-3">
+                            <span className="flex items-center gap-2">
+                              {inputMap.label}
+                              <span className={`px-2 py-0.5 rounded-full text-[9px] ${inputMap.source === 'pagamento' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-indigo-500/20 text-indigo-400'}`}>{inputMap.source}</span>
+                            </span>
+                            {!editingIncome && <Lock className="w-3 h-3 text-white/20" />}
+                          </label>
+                          <div className="relative flex items-center">
+                            <span className="text-white/40 font-bold mr-2 text-lg">R$</span>
+                            <input 
+                              type="number" 
+                              className={`w-full bg-transparent border-none focus:ring-0 p-0 text-2xl text-white font-mono font-bold outline-none placeholder-white/10 ${!editingIncome && 'opacity-80 cursor-default'}`}
+                              value={income[inputMap.field as keyof typeof income] || ''}
+                              onChange={(e) => updateIncomeLocal(inputMap.field, Number(e.target.value))}
+                              readOnly={!editingIncome}
+                              onWheel={(e) => (e.target as HTMLElement).blur()}
+                              placeholder="0.00"
+                            />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Side-by-side Contas */}
+                  <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
+                    {/* Pagamento Contas */}
+                    <div className="bg-white/5 backdrop-blur-xl rounded-3xl border border-white/10 overflow-hidden shadow-2xl flex flex-col h-full">
+                      <div className="p-6 border-b border-white/5 flex justify-between items-center bg-white/5">
+                        <h2 className="text-lg font-bold flex items-center text-white">
+                          <div className="p-2 rounded-xl mr-3 bg-emerald-500/10 border border-emerald-500/20">
+                            <TrendingDown className="w-5 h-5 text-emerald-400" />
+                          </div>
+                          Contas (Pagamento)
+                        </h2>
+                        <button onClick={() => addItem('expense_pagamento')} className="flex items-center text-white bg-white/10 hover:bg-white/20 px-4 py-2 rounded-xl text-sm font-semibold transition-all">
+                          <Plus className="w-4 h-4 mr-2" /> Adicionar
+                        </button>
+                      </div>
+                      <div className="p-6 space-y-4 flex-1">
+                        {items.filter(i => i.type === 'expense_pagamento').map(item => {
+                          const isEdit = editingItems[item.id];
+                          return (
+                            <div key={item.id} className={`flex flex-col sm:flex-row gap-4 items-center p-4 rounded-2xl border transition-all ${isEdit ? 'bg-black/40 border-emerald-500/50' : 'bg-black/20 border-white/5'} group`}>
                               <input 
-                                type="number" 
-                                value={item.pagamento || ''}
-                                onChange={(e) => updateItemLocal(item.id, 'pagamento', e.target.value)}
+                                type="text" 
+                                value={item.name}
+                                onChange={(e) => updateItemLocal(item.id, 'name', e.target.value)}
                                 readOnly={!isEdit}
-                                className="w-24 bg-transparent text-sm font-mono text-white text-right outline-none"
-                                placeholder="0.00"
+                                className="flex-1 bg-transparent text-sm font-semibold text-white outline-none"
+                                placeholder="Descrição"
                               />
+                              <div className="flex items-center gap-3">
+                                <div className="flex items-center">
+                                  <span className="text-white/40 text-xs mr-1">R$</span>
+                                  <input 
+                                    type="number" 
+                                    value={item.pagamento || ''}
+                                    onChange={(e) => updateItemLocal(item.id, 'pagamento', e.target.value)}
+                                    readOnly={!isEdit}
+                                    className="w-24 bg-transparent text-sm font-mono text-white text-right outline-none"
+                                    placeholder="0.00"
+                                  />
+                                </div>
+                                <div className="flex gap-1">
+                                  {isEdit ? (
+                                    <button onClick={() => saveItem(item)} className="p-2 bg-emerald-500/20 text-emerald-400 rounded-lg"><Check className="w-4 h-4" /></button>
+                                  ) : (
+                                    <button onClick={() => setEditingItems(p => ({...p, [item.id]: true}))} className="p-2 text-white/30 hover:text-white opacity-0 group-hover:opacity-100"><Edit2 className="w-4 h-4" /></button>
+                                  )}
+                                  <button onClick={() => removeItem(item.id)} className="p-2 text-white/30 hover:text-rose-400 opacity-0 group-hover:opacity-100"><Trash2 className="w-4 h-4" /></button>
+                                </div>
+                              </div>
                             </div>
-                            <div className="flex gap-1">
-                              {isEdit ? (
-                                <button onClick={() => saveItem(item)} className="p-2 bg-emerald-500/20 text-emerald-400 rounded-lg"><Check className="w-4 h-4" /></button>
-                              ) : (
-                                <button onClick={() => setEditingItems(p => ({...p, [item.id]: true}))} className="p-2 text-white/30 hover:text-white opacity-0 group-hover:opacity-100"><Edit2 className="w-4 h-4" /></button>
-                              )}
-                              <button onClick={() => removeItem(item.id)} className="p-2 text-white/30 hover:text-rose-400 opacity-0 group-hover:opacity-100"><Trash2 className="w-4 h-4" /></button>
-                            </div>
-                          </div>
-                        </div>
-                      )
-                    })}
-                  </div>
-                  <div className="p-6 border-t border-white/5 bg-black/20 flex justify-between items-center">
-                    <span className="text-xs font-bold text-white/40 uppercase tracking-widest">Total Pagamento</span>
-                    <span className="text-lg font-mono font-bold text-emerald-400">{formatCurrency(totals.totalDespesasPagamento - items.filter(i => i.type === 'card_pagamento').reduce((a, c) => a + (Number(c.pagamento)||0), 0))}</span>
-                  </div>
-                </div>
-
-                {/* Vale Contas */}
-                <div className="bg-white/5 backdrop-blur-xl rounded-3xl border border-white/10 overflow-hidden shadow-2xl flex flex-col h-full">
-                  <div className="p-6 border-b border-white/5 flex justify-between items-center bg-white/5">
-                    <h2 className="text-lg font-bold flex items-center text-white">
-                      <div className="p-2 rounded-xl mr-3 bg-indigo-500/10 border border-indigo-500/20">
-                        <TrendingDown className="w-5 h-5 text-indigo-400" />
+                          )
+                        })}
                       </div>
-                      Contas (Vale)
-                    </h2>
-                    <button onClick={() => addItem('expense_vale')} className="flex items-center text-white bg-white/10 hover:bg-white/20 px-4 py-2 rounded-xl text-sm font-semibold transition-all">
-                      <Plus className="w-4 h-4 mr-2" /> Adicionar
-                    </button>
-                  </div>
-                  <div className="p-6 space-y-4 flex-1">
-                    {items.filter(i => i.type === 'expense_vale').map(item => {
-                      const isEdit = editingItems[item.id];
-                      return (
-                        <div key={item.id} className={`flex flex-col sm:flex-row gap-4 items-center p-4 rounded-2xl border transition-all ${isEdit ? 'bg-black/40 border-indigo-500/50' : 'bg-black/20 border-white/5'} group`}>
-                          <input 
-                            type="text" 
-                            value={item.name}
-                            onChange={(e) => updateItemLocal(item.id, 'name', e.target.value)}
-                            readOnly={!isEdit}
-                            className="flex-1 bg-transparent text-sm font-semibold text-white outline-none"
-                            placeholder="Descrição"
-                          />
-                          <div className="flex items-center gap-3">
-                            <div className="flex items-center">
-                              <span className="text-white/40 text-xs mr-1">R$</span>
-                              <input 
-                                type="number" 
-                                value={item.vale || ''}
-                                onChange={(e) => updateItemLocal(item.id, 'vale', e.target.value)}
-                                readOnly={!isEdit}
-                                className="w-24 bg-transparent text-sm font-mono text-white text-right outline-none"
-                                placeholder="0.00"
-                              />
-                            </div>
-                            <div className="flex gap-1">
-                              {isEdit ? (
-                                <button onClick={() => saveItem(item)} className="p-2 bg-indigo-500/20 text-indigo-400 rounded-lg"><Check className="w-4 h-4" /></button>
-                              ) : (
-                                <button onClick={() => setEditingItems(p => ({...p, [item.id]: true}))} className="p-2 text-white/30 hover:text-white opacity-0 group-hover:opacity-100"><Edit2 className="w-4 h-4" /></button>
-                              )}
-                              <button onClick={() => removeItem(item.id)} className="p-2 text-white/30 hover:text-rose-400 opacity-0 group-hover:opacity-100"><Trash2 className="w-4 h-4" /></button>
-                            </div>
-                          </div>
-                        </div>
-                      )
-                    })}
-                  </div>
-                  <div className="p-6 border-t border-white/5 bg-black/20 flex justify-between items-center">
-                    <span className="text-xs font-bold text-white/40 uppercase tracking-widest">Total Vale</span>
-                    <span className="text-lg font-mono font-bold text-indigo-400">{formatCurrency(totals.totalDespesasVale - items.filter(i => i.type === 'card_vale').reduce((a, c) => a + (Number(c.vale)||0), 0))}</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Faturas de Cartões */}
-              <div className="bg-white/5 backdrop-blur-xl rounded-3xl border border-white/10 overflow-hidden shadow-2xl">
-                <div className="p-6 border-b border-white/5 flex justify-between items-center bg-white/5">
-                  <h2 className="text-lg font-bold flex items-center text-white">
-                    <div className="p-2 rounded-xl mr-3 bg-white/5 border border-white/10">
-                      <CreditCard className="w-5 h-5 text-white/80" />
+                      <div className="p-6 border-t border-white/5 bg-black/20 flex justify-between items-center">
+                        <span className="text-xs font-bold text-white/40 uppercase tracking-widest">Total Pagamento</span>
+                        <span className="text-lg font-mono font-bold text-emerald-400">{formatCurrency(totals.totalDespesasPagamento - items.filter(i => i.type === 'card_pagamento').reduce((a, c) => a + (Number(c.pagamento)||0), 0))}</span>
+                      </div>
                     </div>
-                    Faturas de Cartões
-                  </h2>
-                  <button onClick={() => addItem('card_pagamento')} className="flex items-center text-white bg-white/10 hover:bg-white/20 px-4 py-2 rounded-xl text-sm font-semibold transition-all">
-                    <Plus className="w-4 h-4 mr-2" /> Adicionar Cartão
-                  </button>
-                </div>
-                <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-6">
-                  {items.filter(i => i.type.startsWith('card_')).map(item => {
-                    const isEdit = editingItems[item.id];
-                    const isPagamento = item.type === 'card_pagamento';
-                    const amountField = isPagamento ? 'pagamento' : 'vale';
-                    
-                    return (
-                      <div key={item.id} className={`flex flex-col gap-4 p-5 rounded-2xl border transition-all ${isEdit ? 'bg-black/40 border-white/30' : 'bg-black/20 border-white/5 hover:border-white/10'} group`}>
-                        <div className="flex justify-between items-center">
-                          <input 
-                            type="text" 
-                            value={item.name}
-                            onChange={(e) => updateItemLocal(item.id, 'name', e.target.value)}
-                            readOnly={!isEdit}
-                            className="bg-transparent text-base font-bold text-white outline-none w-full"
-                            placeholder="Nome do Cartão"
-                          />
-                          <div className="flex gap-1 ml-4">
-                            {isEdit ? (
-                              <button onClick={() => saveItem(item)} className="p-2 bg-emerald-500/20 text-emerald-400 rounded-lg"><Check className="w-4 h-4" /></button>
-                            ) : (
-                              <button onClick={() => setEditingItems(p => ({...p, [item.id]: true}))} className="p-2 text-white/30 hover:text-white opacity-0 group-hover:opacity-100 transition-opacity"><Edit2 className="w-4 h-4" /></button>
-                            )}
-                            <button onClick={() => removeItem(item.id)} className="p-2 text-white/30 hover:text-rose-400 opacity-0 group-hover:opacity-100 transition-opacity"><Trash2 className="w-4 h-4" /></button>
-                          </div>
-                        </div>
 
-                        <div className="flex gap-4">
-                          <div className="flex-1 bg-white/5 rounded-xl p-3 border border-white/5">
-                            <label className="block text-[10px] font-bold text-white/40 uppercase tracking-widest mb-1">Fonte</label>
-                            <select 
-                              value={isPagamento ? 'pagamento' : 'vale'} 
-                              onChange={(e) => updateCardSource(item, e.target.value as 'pagamento' | 'vale')}
-                              disabled={!isEdit}
-                              className={`w-full bg-transparent text-sm font-semibold outline-none appearance-none cursor-pointer ${isPagamento ? 'text-emerald-400' : 'text-indigo-400'}`}
-                            >
-                              <option value="pagamento" className="bg-[#0f1115] text-emerald-400">Pagamento</option>
-                              <option value="vale" className="bg-[#0f1115] text-indigo-400">Vale</option>
-                            </select>
+                    {/* Vale Contas */}
+                    <div className="bg-white/5 backdrop-blur-xl rounded-3xl border border-white/10 overflow-hidden shadow-2xl flex flex-col h-full">
+                      <div className="p-6 border-b border-white/5 flex justify-between items-center bg-white/5">
+                        <h2 className="text-lg font-bold flex items-center text-white">
+                          <div className="p-2 rounded-xl mr-3 bg-indigo-500/10 border border-indigo-500/20">
+                            <TrendingDown className="w-5 h-5 text-indigo-400" />
                           </div>
-                          <div className="flex-1 bg-white/5 rounded-xl p-3 border border-white/5">
-                            <label className="block text-[10px] font-bold text-white/40 uppercase tracking-widest mb-1">Valor</label>
-                            <div className="flex items-center">
-                              <span className="text-white/40 text-xs mr-1">R$</span>
+                          Contas (Vale)
+                        </h2>
+                        <button onClick={() => addItem('expense_vale')} className="flex items-center text-white bg-white/10 hover:bg-white/20 px-4 py-2 rounded-xl text-sm font-semibold transition-all">
+                          <Plus className="w-4 h-4 mr-2" /> Adicionar
+                        </button>
+                      </div>
+                      <div className="p-6 space-y-4 flex-1">
+                        {items.filter(i => i.type === 'expense_vale').map(item => {
+                          const isEdit = editingItems[item.id];
+                          return (
+                            <div key={item.id} className={`flex flex-col sm:flex-row gap-4 items-center p-4 rounded-2xl border transition-all ${isEdit ? 'bg-black/40 border-indigo-500/50' : 'bg-black/20 border-white/5'} group`}>
                               <input 
-                                type="number" 
-                                value={item[amountField] || ''}
-                                onChange={(e) => updateItemLocal(item.id, amountField, e.target.value)}
+                                type="text" 
+                                value={item.name}
+                                onChange={(e) => updateItemLocal(item.id, 'name', e.target.value)}
                                 readOnly={!isEdit}
-                                className="w-full bg-transparent text-sm font-mono text-white outline-none"
-                                placeholder="0.00"
+                                className="flex-1 bg-transparent text-sm font-semibold text-white outline-none"
+                                placeholder="Descrição"
                               />
+                              <div className="flex items-center gap-3">
+                                <div className="flex items-center">
+                                  <span className="text-white/40 text-xs mr-1">R$</span>
+                                  <input 
+                                    type="number" 
+                                    value={item.vale || ''}
+                                    onChange={(e) => updateItemLocal(item.id, 'vale', e.target.value)}
+                                    readOnly={!isEdit}
+                                    className="w-24 bg-transparent text-sm font-mono text-white text-right outline-none"
+                                    placeholder="0.00"
+                                  />
+                                </div>
+                                <div className="flex gap-1">
+                                  {isEdit ? (
+                                    <button onClick={() => saveItem(item)} className="p-2 bg-indigo-500/20 text-indigo-400 rounded-lg"><Check className="w-4 h-4" /></button>
+                                  ) : (
+                                    <button onClick={() => setEditingItems(p => ({...p, [item.id]: true}))} className="p-2 text-white/30 hover:text-white opacity-0 group-hover:opacity-100"><Edit2 className="w-4 h-4" /></button>
+                                  )}
+                                  <button onClick={() => removeItem(item.id)} className="p-2 text-white/30 hover:text-rose-400 opacity-0 group-hover:opacity-100"><Trash2 className="w-4 h-4" /></button>
+                                </div>
+                              </div>
+                            </div>
+                          )
+                        })}
+                      </div>
+                      <div className="p-6 border-t border-white/5 bg-black/20 flex justify-between items-center">
+                        <span className="text-xs font-bold text-white/40 uppercase tracking-widest">Total Vale</span>
+                        <span className="text-lg font-mono font-bold text-indigo-400">{formatCurrency(totals.totalDespesasVale - items.filter(i => i.type === 'card_vale').reduce((a, c) => a + (Number(c.vale)||0), 0))}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Faturas de Cartões */}
+                  <div className="bg-white/5 backdrop-blur-xl rounded-3xl border border-white/10 overflow-hidden shadow-2xl">
+                    <div className="p-6 border-b border-white/5 flex justify-between items-center bg-white/5">
+                      <h2 className="text-lg font-bold flex items-center text-white">
+                        <div className="p-2 rounded-xl mr-3 bg-white/5 border border-white/10">
+                          <CreditCard className="w-5 h-5 text-white/80" />
+                        </div>
+                        Faturas de Cartões
+                      </h2>
+                      <button onClick={() => addItem('card_pagamento')} className="flex items-center text-white bg-white/10 hover:bg-white/20 px-4 py-2 rounded-xl text-sm font-semibold transition-all">
+                        <Plus className="w-4 h-4 mr-2" /> Adicionar Cartão
+                      </button>
+                    </div>
+                    <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-6">
+                      {items.filter(i => i.type.startsWith('card_')).map(item => {
+                        const isEdit = editingItems[item.id];
+                        const isPagamento = item.type === 'card_pagamento';
+                        const amountField = isPagamento ? 'pagamento' : 'vale';
+                        
+                        return (
+                          <div key={item.id} className={`flex flex-col gap-4 p-5 rounded-2xl border transition-all ${isEdit ? 'bg-black/40 border-white/30' : 'bg-black/20 border-white/5 hover:border-white/10'} group`}>
+                            <div className="flex justify-between items-center">
+                              <input 
+                                type="text" 
+                                value={item.name}
+                                onChange={(e) => updateItemLocal(item.id, 'name', e.target.value)}
+                                readOnly={!isEdit}
+                                className="bg-transparent text-base font-bold text-white outline-none w-full"
+                                placeholder="Nome do Cartão"
+                              />
+                              <div className="flex gap-1 ml-4">
+                                {isEdit ? (
+                                  <button onClick={() => saveItem(item)} className="p-2 bg-emerald-500/20 text-emerald-400 rounded-lg"><Check className="w-4 h-4" /></button>
+                                ) : (
+                                  <button onClick={() => setEditingItems(p => ({...p, [item.id]: true}))} className="p-2 text-white/30 hover:text-white opacity-0 group-hover:opacity-100 transition-opacity"><Edit2 className="w-4 h-4" /></button>
+                                )}
+                                <button onClick={() => removeItem(item.id)} className="p-2 text-white/30 hover:text-rose-400 opacity-0 group-hover:opacity-100 transition-opacity"><Trash2 className="w-4 h-4" /></button>
+                              </div>
+                            </div>
+
+                            <div className="flex gap-4">
+                              <div className="flex-1 bg-white/5 rounded-xl p-3 border border-white/5">
+                                <label className="block text-[10px] font-bold text-white/40 uppercase tracking-widest mb-1">Fonte</label>
+                                <select 
+                                  value={isPagamento ? 'pagamento' : 'vale'} 
+                                  onChange={(e) => updateCardSource(item, e.target.value as 'pagamento' | 'vale')}
+                                  disabled={!isEdit}
+                                  className={`w-full bg-transparent text-sm font-semibold outline-none appearance-none cursor-pointer ${isPagamento ? 'text-emerald-400' : 'text-indigo-400'}`}
+                                >
+                                  <option value="pagamento" className="bg-[#0f1115] text-emerald-400">Pagamento</option>
+                                  <option value="vale" className="bg-[#0f1115] text-indigo-400">Vale</option>
+                                </select>
+                              </div>
+                              <div className="flex-1 bg-white/5 rounded-xl p-3 border border-white/5">
+                                <label className="block text-[10px] font-bold text-white/40 uppercase tracking-widest mb-1">Valor</label>
+                                <div className="flex items-center">
+                                  <span className="text-white/40 text-xs mr-1">R$</span>
+                                  <input 
+                                    type="number" 
+                                    value={item[amountField] || ''}
+                                    onChange={(e) => updateItemLocal(item.id, amountField, e.target.value)}
+                                    readOnly={!isEdit}
+                                    className="w-full bg-transparent text-sm font-mono text-white outline-none"
+                                    placeholder="0.00"
+                                  />
+                                </div>
+                              </div>
                             </div>
                           </div>
-                        </div>
-                      </div>
-                    )
-                  })}
+                        )
+                      })}
+                    </div>
+                  </div>
                 </div>
-              </div>
-
+              )}
             </div>
           )}
         </div>
