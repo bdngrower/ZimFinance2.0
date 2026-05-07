@@ -236,7 +236,20 @@ export default function App() {
     
     const totalRemaining = totalIncome - totalExpenses;
 
-    return { totalDespesasPagamento, totalDespesasVale, totalIncome, totalExpenses, totalRemaining, totalPagamentoIncome, totalValeIncome };
+    const remainingPagamento = totalPagamentoIncome - totalDespesasPagamento;
+    const remainingVale = totalValeIncome - totalDespesasVale;
+
+    return { 
+      totalDespesasPagamento, 
+      totalDespesasVale, 
+      totalIncome, 
+      totalExpenses, 
+      totalRemaining, 
+      totalPagamentoIncome, 
+      totalValeIncome,
+      remainingPagamento,
+      remainingVale
+    };
   }, [income, items]);
 
   const pieChartData = useMemo(() => {
@@ -420,14 +433,28 @@ export default function App() {
                   </div>
                   <p className="text-3xl font-extrabold text-white font-mono tracking-tight">{formatCurrency(totals.totalExpenses)}</p>
                 </div>
-                <div className={`p-6 rounded-3xl border shadow-2xl transition-all duration-300 hover:-translate-y-1 group ${totals.totalRemaining >= 0 ? 'bg-emerald-500/10 border-emerald-500/30 hover:shadow-emerald-500/20' : 'bg-rose-500/10 border-rose-500/30 hover:shadow-rose-500/20'}`}>
-                  <div className="flex items-center justify-between mb-2">
-                    <h3 className="text-white/80 font-bold text-xs uppercase tracking-widest group-hover:text-white transition-colors">Saldo do Mês</h3>
-                    <DollarSign className={`w-5 h-5 group-hover:scale-110 transition-transform ${totals.totalRemaining >= 0 ? 'text-emerald-400' : 'text-rose-400'}`} />
+                <div className={`p-6 rounded-3xl border shadow-2xl transition-all duration-300 hover:-translate-y-1 group flex flex-col justify-between ${totals.totalRemaining >= 0 ? 'bg-emerald-500/10 border-emerald-500/30 hover:shadow-emerald-500/20' : 'bg-rose-500/10 border-rose-500/30 hover:shadow-rose-500/20'}`}>
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <h3 className="text-white/80 font-bold text-xs uppercase tracking-widest group-hover:text-white transition-colors">Saldo do Mês</h3>
+                      <DollarSign className={`w-5 h-5 group-hover:scale-110 transition-transform ${totals.totalRemaining >= 0 ? 'text-emerald-400' : 'text-rose-400'}`} />
+                    </div>
+                    <p className={`text-3xl font-extrabold font-mono tracking-tight mb-4 ${totals.totalRemaining >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                      {formatCurrency(totals.totalRemaining)}
+                    </p>
                   </div>
-                  <p className={`text-3xl font-extrabold font-mono tracking-tight ${totals.totalRemaining >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                    {formatCurrency(totals.totalRemaining)}
-                  </p>
+                  
+                  {/* Detailed remaining balance */}
+                  <div className="flex justify-between items-center text-[10px] font-bold uppercase tracking-widest pt-4 border-t border-white/10">
+                    <div className="flex flex-col gap-1">
+                      <span className="text-white/50">Pagamento</span>
+                      <span className={`font-mono text-sm ${totals.remainingPagamento >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{formatCurrency(totals.remainingPagamento)}</span>
+                    </div>
+                    <div className="flex flex-col gap-1 text-right">
+                      <span className="text-white/50">Adiantamento</span>
+                      <span className={`font-mono text-sm ${totals.remainingVale >= 0 ? 'text-indigo-400' : 'text-rose-400'}`}>{formatCurrency(totals.remainingVale)}</span>
+                    </div>
+                  </div>
                 </div>
               </div>
 
@@ -511,7 +538,7 @@ export default function App() {
                     <div className="p-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                       {[
                         { label: "Pagamento Base", field: "pagamento", source: "pagamento", show: true },
-                        { label: "Vale Alimentação", field: "vale", source: "vale", show: true },
+                        { label: "Adiantamento", field: "vale", source: "vale", show: true },
                         { label: "Férias", field: "ferias", source: "pagamento", show: true },
                         { label: "13º Salário", field: "decimoTerceiro", source: "pagamento", show: currentMonthIndex === 10 || currentMonthIndex === 11 },
                       ].filter(i => i.show).map((inputMap) => (
