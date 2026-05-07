@@ -364,9 +364,7 @@ export default function App() {
         <div className="fixed top-[-10%] left-[-10%] w-[40%] h-[40%] rounded-full bg-emerald-600/20 blur-[120px] pointer-events-none" />
         <div className="bg-white/5 backdrop-blur-xl border border-white/10 p-8 rounded-3xl w-full max-w-md shadow-2xl relative z-10">
           <div className="flex flex-col items-center mb-8">
-            <div className="bg-gradient-to-br from-emerald-400 to-emerald-600 p-4 rounded-2xl shadow-lg shadow-emerald-500/20 mb-4">
-              <Wallet className="w-8 h-8 text-white" />
-            </div>
+            <img src="/Logo.png" alt="ZimFinance" className="w-20 h-20 object-contain mb-4 drop-shadow-2xl" />
             <h1 className="text-3xl font-extrabold text-white tracking-tight">ZimFinance</h1>
             <p className="text-white/50 text-sm mt-2">Acesse seu controle financeiro</p>
           </div>
@@ -407,9 +405,7 @@ export default function App() {
       {/* Sidebar */}
       <aside className="w-64 bg-[#0f1115]/90 backdrop-blur-2xl border-r border-white/10 flex flex-col z-50">
         <div className="h-24 flex items-center px-8 border-b border-white/5">
-          <div className="bg-gradient-to-br from-emerald-400 to-emerald-600 p-2.5 rounded-2xl shadow-lg shadow-emerald-500/20 mr-4">
-            <Wallet className="w-6 h-6 text-white" />
-          </div>
+          <img src="/Logo.png" alt="Logo" className="w-10 h-10 object-contain mr-3" />
           <h1 className="text-xl font-extrabold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-white to-white/60">
             ZimFinance
           </h1>
