@@ -3,7 +3,7 @@ import { Plus, Trash2, DollarSign, Wallet, TrendingDown, TrendingUp, Calendar, C
 import { supabase } from './lib/supabaseClient';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, PieChart, Pie, Cell } from 'recharts';
 
-const MONTH_NAMES = ['Janeiro', 'Fevereiro', 'MarÃ§o', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+const MONTH_NAMES = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
 const PIE_COLORS = ['#10b981', '#3b82f6', '#f43f5e', '#8b5cf6', '#f59e0b', '#64748b', '#ec4899', '#14b8a6', '#f97316', '#6366f1'];
 
 const formatCurrency = (value: number) => {
@@ -11,6 +11,7 @@ const formatCurrency = (value: number) => {
 };
 
 type ItemRecord = { id: string, name: string, pagamento: number, vale: number, type: string };
+type CardExpense = { id: string, card_item_id: string, name: string, value: number };
 
 export default function App() {
   const [session, setSession] = useState<any>(null);
@@ -35,6 +36,9 @@ export default function App() {
 
   const [editingItems, setEditingItems] = useState<{ [key: string]: boolean }>({});
   const [editingIncome, setEditingIncome] = useState(false);
+  const [expandedCards, setExpandedCards] = useState<{ [key: string]: boolean }>({});
+  const [cardExpenses, setCardExpenses] = useState<{ [cardId: string]: CardExpense[] }>({});
+  const [editingCardExpenses, setEditingCardExpenses] = useState<{ [expId: string]: boolean }>({});
 
   const [yearData, setYearData] = useState<any[]>([]);
   const [annualTotals, setAnnualTotals] = useState({ income: 0, expense: 0 });
@@ -140,8 +144,27 @@ export default function App() {
 
     if (currentItems) {
       setItems(currentItems);
+      // Buscar despesas de todos os cartões do mês
+      const cardIds = currentItems.filter(i => i.type.startsWith('card_')).map(i => i.id);
+      if (cardIds.length > 0) {
+        const { data: expenses } = await supabase
+          .from('card_expenses')
+          .select('*')
+          .in('card_item_id', cardIds);
+        if (expenses) {
+          const expMap: { [cardId: string]: CardExpense[] } = {};
+          expenses.forEach(e => {
+            if (!expMap[e.card_item_id]) expMap[e.card_item_id] = [];
+            expMap[e.card_item_id].push(e);
+          });
+          setCardExpenses(expMap);
+        }
+      } else {
+        setCardExpenses({});
+      }
     } else {
       setItems([]);
+      setCardExpenses({});
     }
 
     setEditingItems({});
@@ -207,7 +230,62 @@ export default function App() {
 
   const removeItem = async (id: string) => {
     setItems(prev => prev.filter(item => item.id !== id));
+    setCardExpenses(prev => { const n = {...prev}; delete n[id]; return n; });
     await supabase.from('items').delete().eq('id', id);
+    fetchYearData();
+  };
+
+  // ---- Card Expenses ----
+  const toggleExpandCard = (cardId: string) => {
+    setExpandedCards(prev => ({ ...prev, [cardId]: !prev[cardId] }));
+  };
+
+  const addCardExpense = async (cardItem: ItemRecord) => {
+    const newExp: CardExpense = {
+      id: Math.random().toString(36).substr(2, 9),
+      card_item_id: cardItem.id,
+      name: '',
+      value: 0,
+    };
+    setCardExpenses(prev => ({
+      ...prev,
+      [cardItem.id]: [...(prev[cardItem.id] || []), newExp]
+    }));
+    setEditingCardExpenses(prev => ({ ...prev, [newExp.id]: true }));
+    await supabase.from('card_expenses').insert(newExp);
+  };
+
+  const updateCardExpenseLocal = (cardId: string, expId: string, field: string, value: string | number) => {
+    setCardExpenses(prev => ({
+      ...prev,
+      [cardId]: (prev[cardId] || []).map(e => e.id === expId ? { ...e, [field]: value } : e)
+    }));
+  };
+
+  const saveCardExpense = async (cardItem: ItemRecord, exp: CardExpense) => {
+    await supabase.from('card_expenses').update({ name: exp.name, value: exp.value }).eq('id', exp.id);
+    setEditingCardExpenses(prev => ({ ...prev, [exp.id]: false }));
+    // Atualizar total do cartão automaticamente
+    const allExps = cardExpenses[cardItem.id] || [];
+    const updated = allExps.map(e => e.id === exp.id ? exp : e);
+    const total = updated.reduce((s, e) => s + Number(e.value || 0), 0);
+    const isPagamento = cardItem.type === 'card_pagamento';
+    const updatedItem = { ...cardItem, pagamento: isPagamento ? total : 0, vale: isPagamento ? 0 : total };
+    setItems(prev => prev.map(i => i.id === cardItem.id ? updatedItem : i));
+    await supabase.from('items').update({ pagamento: updatedItem.pagamento, vale: updatedItem.vale }).eq('id', cardItem.id);
+    fetchYearData();
+  };
+
+  const removeCardExpense = async (cardItem: ItemRecord, expId: string) => {
+    const remaining = (cardExpenses[cardItem.id] || []).filter(e => e.id !== expId);
+    setCardExpenses(prev => ({ ...prev, [cardItem.id]: remaining }));
+    await supabase.from('card_expenses').delete().eq('id', expId);
+    // Recalcular total
+    const total = remaining.reduce((s, e) => s + Number(e.value || 0), 0);
+    const isPagamento = cardItem.type === 'card_pagamento';
+    const updatedItem = { ...cardItem, pagamento: isPagamento ? total : 0, vale: isPagamento ? 0 : total };
+    setItems(prev => prev.map(i => i.id === cardItem.id ? updatedItem : i));
+    await supabase.from('items').update({ pagamento: updatedItem.pagamento, vale: updatedItem.vale }).eq('id', cardItem.id);
     fetchYearData();
   };
 
@@ -345,7 +423,7 @@ export default function App() {
             className={`w-full flex items-center px-4 py-3.5 rounded-2xl font-bold transition-all ${activeView === 'lancamentos' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'text-white/50 hover:text-white hover:bg-white/5 border border-transparent'}`}
           >
             <Receipt className="w-5 h-5 mr-3" />
-            LanÃ§amentos
+            Lançamentos
           </button>
         </nav>
 
@@ -371,9 +449,9 @@ export default function App() {
         <header className="h-24 px-8 border-b border-white/10 flex flex-col sm:flex-row items-start sm:items-center justify-between bg-white/5 backdrop-blur-xl z-40">
           <div>
             <h2 className="text-2xl font-bold text-white">
-              {activeView === 'dashboard' ? 'Dashboard Financeiro' : 'Controle de LanÃ§amentos'}
+              {activeView === 'dashboard' ? 'Dashboard Financeiro' : 'Controle de Lançamentos'}
             </h2>
-            <p className="text-white/50 text-sm mt-1">Gerencie seu patrimÃ´nio e despesas</p>
+            <p className="text-white/50 text-sm mt-1">Gerencie seu patrimônio e despesas</p>
           </div>
           
           <div className="flex items-center gap-2 mt-4 sm:mt-0 bg-black/40 p-2 rounded-2xl border border-white/10">
@@ -407,14 +485,14 @@ export default function App() {
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 <div className="bg-white/5 backdrop-blur-xl p-6 rounded-3xl border border-white/10 shadow-2xl hover:-translate-y-1 hover:border-emerald-500/30 transition-all duration-300 group">
                   <div className="flex items-center justify-between mb-2">
-                    <h3 className="text-white/60 font-bold text-xs uppercase tracking-widest group-hover:text-white/80 transition-colors">Receitas do MÃªs</h3>
+                    <h3 className="text-white/60 font-bold text-xs uppercase tracking-widest group-hover:text-white/80 transition-colors">Receitas do Mês</h3>
                     <TrendingUp className="w-5 h-5 text-emerald-400 group-hover:scale-110 transition-transform" />
                   </div>
                   <p className="text-3xl font-extrabold text-white font-mono tracking-tight">{formatCurrency(totals.totalIncome)}</p>
                 </div>
                 <div className="bg-white/5 backdrop-blur-xl p-6 rounded-3xl border border-white/10 shadow-2xl hover:-translate-y-1 hover:border-rose-500/30 transition-all duration-300 group">
                   <div className="flex items-center justify-between mb-2">
-                    <h3 className="text-white/60 font-bold text-xs uppercase tracking-widest group-hover:text-white/80 transition-colors">Gastos do MÃªs</h3>
+                    <h3 className="text-white/60 font-bold text-xs uppercase tracking-widest group-hover:text-white/80 transition-colors">Gastos do Mês</h3>
                     <TrendingDown className="w-5 h-5 text-rose-400 group-hover:scale-110 transition-transform" />
                   </div>
                   <p className="text-3xl font-extrabold text-white font-mono tracking-tight">{formatCurrency(totals.totalExpenses)}</p>
@@ -422,7 +500,7 @@ export default function App() {
                 <div className={`p-6 rounded-3xl border shadow-2xl transition-all duration-300 hover:-translate-y-1 group flex flex-col justify-between ${totals.totalRemaining >= 0 ? 'bg-emerald-500/10 border-emerald-500/30 hover:shadow-emerald-500/20' : 'bg-rose-500/10 border-rose-500/30 hover:shadow-rose-500/20'}`}>
                   <div>
                     <div className="flex items-center justify-between mb-2">
-                      <h3 className="text-white/80 font-bold text-xs uppercase tracking-widest group-hover:text-white transition-colors">Saldo do MÃªs</h3>
+                      <h3 className="text-white/80 font-bold text-xs uppercase tracking-widest group-hover:text-white transition-colors">Saldo do Mês</h3>
                       <DollarSign className={`w-5 h-5 group-hover:scale-110 transition-transform ${totals.totalRemaining >= 0 ? 'text-emerald-400' : 'text-rose-400'}`} />
                     </div>
                     <p className={`text-3xl font-extrabold font-mono tracking-tight mb-4 ${totals.totalRemaining >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
@@ -451,7 +529,7 @@ export default function App() {
                     <div className="flex justify-between items-center mb-6">
                       <h3 className="text-lg font-bold text-white flex items-center">
                         <TrendingUp className="w-5 h-5 mr-3 text-indigo-400" />
-                        VisÃ£o Anual ({currentYear})
+                        Visão Anual ({currentYear})
                       </h3>
                       <div className="flex gap-4 text-xs font-bold text-white/50 uppercase tracking-widest bg-black/20 px-4 py-2 rounded-xl">
                         <span>Total Receita: <span className="text-emerald-400">{formatCurrency(annualTotals.income)}</span></span>
@@ -476,7 +554,7 @@ export default function App() {
                   <div className="xl:col-span-1 bg-white/5 backdrop-blur-xl p-6 rounded-3xl border border-white/10 flex flex-col shadow-2xl">
                     <h3 className="text-lg font-bold text-white mb-6 flex items-center">
                       <PieChartIcon className="w-5 h-5 mr-3 text-emerald-400" />
-                      Maiores Gastos do MÃªs
+                      Maiores Gastos do Mês
                     </h3>
                     {pieChartData.length > 0 ? (
                       <div className="flex-1 w-full min-h-[300px]">
@@ -507,7 +585,7 @@ export default function App() {
                     <div className="px-5 py-3 border-b border-white/5 flex justify-between items-center">
                       <h2 className="text-sm font-bold text-white flex items-center gap-2">
                         <TrendingUp className="w-4 h-4 text-emerald-400" />
-                        Receitas do MÃªs
+                        Receitas do Mês
                       </h2>
                       {editingIncome ? (
                         <button onClick={saveIncome} className="flex items-center gap-1.5 text-emerald-400 bg-emerald-500/20 hover:bg-emerald-500/30 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all">
@@ -523,8 +601,8 @@ export default function App() {
                       {[
                         { label: "Pagamento Base", field: "pagamento", color: "emerald" },
                         { label: "Adiantamento", field: "vale", color: "indigo" },
-                        { label: "FÃ©rias", field: "ferias", color: "emerald" },
-                        ...(currentMonthIndex === 10 || currentMonthIndex === 11 ? [{ label: "13Âº SalÃ¡rio", field: "decimoTerceiro", color: "emerald" }] : []),
+                        { label: "Férias", field: "ferias", color: "emerald" },
+                        ...(currentMonthIndex === 10 || currentMonthIndex === 11 ? [{ label: "13\u00ba Sal\u00e1rio", field: "decimoTerceiro", color: "emerald" }] : []),
                       ].map((inputMap) => (
                         <div key={inputMap.field} className={`flex items-center gap-2 px-3 py-2 rounded-xl border transition-all ${editingIncome ? 'border-emerald-500/30 bg-emerald-500/5' : 'border-white/5 bg-black/20'}`}>
                           <span className={`text-[10px] font-bold uppercase tracking-wider ${inputMap.color === 'indigo' ? 'text-indigo-400' : 'text-emerald-400'}`}>{inputMap.label}</span>
@@ -544,7 +622,7 @@ export default function App() {
                     </div>
                   </div>
 
-                  {/* 3 Colunas: Pagamento | Adiantamento | CartÃµes */}
+                  {/* 3 Colunas: Pagamento | Adiantamento | Cartões */}
                   <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
 
                     {/* Contas Pagamento */}
@@ -568,7 +646,7 @@ export default function App() {
                                 onChange={(e) => updateItemLocal(item.id, 'name', e.target.value)}
                                 readOnly={!isEdit}
                                 className="flex-1 bg-transparent text-xs font-medium text-white/80 outline-none min-w-0"
-                                placeholder="DescriÃ§Ã£o"
+                                placeholder="Descrição"
                               />
                               <span className="text-white/30 text-[10px]">R$</span>
                               <input
@@ -627,7 +705,7 @@ export default function App() {
                                 onChange={(e) => updateItemLocal(item.id, 'name', e.target.value)}
                                 readOnly={!isEdit}
                                 className="flex-1 bg-transparent text-xs font-medium text-white/80 outline-none min-w-0"
-                                placeholder="DescriÃ§Ã£o"
+                                placeholder="Descrição"
                               />
                               <span className="text-white/30 text-[10px]">R$</span>
                               <input
@@ -665,72 +743,155 @@ export default function App() {
                       </div>
                     </div>
 
-                    {/* CartÃµes */}
+                    {/* Cart\u00f5es */}
                     <div className="bg-white/5 backdrop-blur-xl rounded-2xl border border-white/10 overflow-hidden shadow-xl flex flex-col">
                       <div className="px-4 py-3 border-b border-white/5 flex justify-between items-center bg-white/3">
                         <span className="text-xs font-bold text-white/60 flex items-center gap-1.5">
-                          <CreditCard className="w-3.5 h-3.5" /> CartÃµes
+                          <CreditCard className="w-3.5 h-3.5" /> Cart\u00f5es
                         </span>
                         <button onClick={() => addItem('card_pagamento')} className="p-1 text-white/40 hover:text-white hover:bg-white/10 rounded-lg transition-all">
                           <Plus className="w-3.5 h-3.5" />
                         </button>
                       </div>
-                      <div className="divide-y divide-white/5 flex-1">
+                      <div className="flex-1">
                         {items.filter(i => i.type.startsWith('card_')).map(item => {
                           const isEdit = editingItems[item.id];
                           const isPagamento = item.type === 'card_pagamento';
                           const amountField = isPagamento ? 'pagamento' : 'vale';
+                          const isExpanded = expandedCards[item.id];
+                          const expenses = cardExpenses[item.id] || [];
+                          const hasExpenses = expenses.length > 0;
+                          const autoTotal = expenses.reduce((s, e) => s + Number(e.value || 0), 0);
                           return (
-                            <div key={item.id} className={`flex items-center gap-2 px-3 py-2.5 transition-all group ${isEdit ? 'bg-white/5' : 'hover:bg-white/3'}`}>
-                              <input
-                                type="text"
-                                value={item.name}
-                                onChange={(e) => updateItemLocal(item.id, 'name', e.target.value)}
-                                readOnly={!isEdit}
-                                className="flex-1 bg-transparent text-xs font-medium text-white/80 outline-none min-w-0"
-                                placeholder="Nome do cartÃ£o"
-                              />
-                              <select
-                                value={isPagamento ? 'pagamento' : 'vale'}
-                                onChange={(e) => updateCardSource(item, e.target.value as 'pagamento' | 'vale')}
-                                disabled={!isEdit}
-                                className={`text-[10px] font-bold outline-none appearance-none cursor-pointer rounded px-1.5 py-0.5 border transition-all ${
-                                  isPagamento
-                                    ? 'bg-emerald-500/15 border-emerald-500/20 text-emerald-400'
-                                    : 'bg-indigo-500/15 border-indigo-500/20 text-indigo-400'
-                                } ${!isEdit ? 'pointer-events-none' : ''}`}
-                              >
-                                <option value="pagamento" className="bg-[#0f1115] text-emerald-400">Pgto</option>
-                                <option value="vale" className="bg-[#0f1115] text-indigo-400">Adto</option>
-                              </select>
-                              <span className="text-white/30 text-[10px]">R$</span>
-                              <input
-                                type="number"
-                                value={item[amountField] || ''}
-                                onChange={(e) => updateItemLocal(item.id, amountField, e.target.value)}
-                                readOnly={!isEdit}
-                                className={`w-16 bg-transparent text-xs font-mono text-right outline-none ${isPagamento ? 'text-emerald-400' : 'text-indigo-400'}`}
-                                placeholder="0"
-                              />
-                              <div className="flex gap-0.5 shrink-0">
-                                {isEdit ? (
-                                  <button onClick={() => saveItem(item)} className="p-1 bg-emerald-500/20 text-emerald-400 rounded">
-                                    <Check className="w-3 h-3" />
-                                  </button>
-                                ) : (
-                                  <button onClick={() => setEditingItems(p => ({...p, [item.id]: true}))} className="p-1 text-white/20 hover:text-white opacity-0 group-hover:opacity-100 rounded transition-all">
-                                    <Edit2 className="w-3 h-3" />
-                                  </button>
-                                )}
-                                <button onClick={() => removeItem(item.id)} className="p-1 text-white/20 hover:text-rose-400 opacity-0 group-hover:opacity-100 rounded transition-all">
-                                  <Trash2 className="w-3 h-3" />
+                            <div key={item.id} className="border-b border-white/5 last:border-0">
+                              {/* Cart\u00e3o header row */}
+                              <div className={`flex items-center gap-2 px-3 py-2.5 transition-all group ${isEdit ? 'bg-white/5' : 'hover:bg-white/3'}`}>
+                                {/* Expand button */}
+                                <button
+                                  onClick={() => toggleExpandCard(item.id)}
+                                  className={`p-0.5 rounded transition-all shrink-0 ${isExpanded ? 'text-white/60' : 'text-white/20 hover:text-white/60'}`}
+                                  title="Ver despesas do cart\u00e3o"
+                                >
+                                  <ChevronRight className={`w-3 h-3 transition-transform duration-200 ${isExpanded ? 'rotate-90' : ''}`} />
                                 </button>
+                                <input
+                                  type="text"
+                                  value={item.name}
+                                  onChange={(e) => updateItemLocal(item.id, 'name', e.target.value)}
+                                  readOnly={!isEdit}
+                                  className="flex-1 bg-transparent text-xs font-medium text-white/80 outline-none min-w-0"
+                                  placeholder="Nome do cart\u00e3o"
+                                />
+                                <select
+                                  value={isPagamento ? 'pagamento' : 'vale'}
+                                  onChange={(e) => updateCardSource(item, e.target.value as 'pagamento' | 'vale')}
+                                  disabled={!isEdit}
+                                  className={`text-[10px] font-bold outline-none appearance-none cursor-pointer rounded px-1.5 py-0.5 border transition-all ${
+                                    isPagamento
+                                      ? 'bg-emerald-500/15 border-emerald-500/20 text-emerald-400'
+                                      : 'bg-indigo-500/15 border-indigo-500/20 text-indigo-400'
+                                  } ${!isEdit ? 'pointer-events-none' : ''}`}
+                                >
+                                  <option value="pagamento" className="bg-[#0f1115] text-emerald-400">Pgto</option>
+                                  <option value="vale" className="bg-[#0f1115] text-indigo-400">Adto</option>
+                                </select>
+                                <span className="text-white/30 text-[10px]">R$</span>
+                                {/* Se tem despesas individuais, mostra total auto-calculado; sen\u00e3o, permite entrada manual */}
+                                {hasExpenses ? (
+                                  <span className={`w-16 text-xs font-mono font-bold text-right ${isPagamento ? 'text-emerald-400' : 'text-indigo-400'}`}>
+                                    {autoTotal.toFixed(2)}
+                                  </span>
+                                ) : (
+                                  <input
+                                    type="number"
+                                    value={item[amountField] || ''}
+                                    onChange={(e) => updateItemLocal(item.id, amountField, e.target.value)}
+                                    readOnly={!isEdit}
+                                    className={`w-16 bg-transparent text-xs font-mono text-right outline-none ${isPagamento ? 'text-emerald-400' : 'text-indigo-400'}`}
+                                    placeholder="0"
+                                  />
+                                )}
+                                <div className="flex gap-0.5 shrink-0">
+                                  {isEdit ? (
+                                    <button onClick={() => saveItem(item)} className="p-1 bg-emerald-500/20 text-emerald-400 rounded">
+                                      <Check className="w-3 h-3" />
+                                    </button>
+                                  ) : (
+                                    <button onClick={() => setEditingItems(p => ({...p, [item.id]: true}))} className="p-1 text-white/20 hover:text-white opacity-0 group-hover:opacity-100 rounded transition-all">
+                                      <Edit2 className="w-3 h-3" />
+                                    </button>
+                                  )}
+                                  <button onClick={() => removeItem(item.id)} className="p-1 text-white/20 hover:text-rose-400 opacity-0 group-hover:opacity-100 rounded transition-all">
+                                    <Trash2 className="w-3 h-3" />
+                                  </button>
+                                </div>
                               </div>
+
+                              {/* Expandido: lista de despesas individuais */}
+                              {isExpanded && (
+                                <div className="bg-black/30 border-t border-white/5">
+                                  <div className="divide-y divide-white/5">
+                                    {expenses.map(exp => {
+                                      const isExpEdit = editingCardExpenses[exp.id];
+                                      return (
+                                        <div key={exp.id} className={`flex items-center gap-2 pl-8 pr-3 py-2 group transition-all ${isExpEdit ? 'bg-white/5' : 'hover:bg-white/3'}`}>
+                                          <span className="text-white/15 text-[10px] shrink-0">└</span>
+                                          <input
+                                            type="text"
+                                            value={exp.name}
+                                            onChange={(e) => updateCardExpenseLocal(item.id, exp.id, 'name', e.target.value)}
+                                            readOnly={!isExpEdit}
+                                            className="flex-1 bg-transparent text-[11px] text-white/70 outline-none min-w-0"
+                                            placeholder="Descri\u00e7\u00e3o da compra"
+                                          />
+                                          <span className="text-white/20 text-[10px]">R$</span>
+                                          <input
+                                            type="number"
+                                            value={exp.value || ''}
+                                            onChange={(e) => updateCardExpenseLocal(item.id, exp.id, 'value', e.target.value)}
+                                            readOnly={!isExpEdit}
+                                            className={`w-16 bg-transparent text-[11px] font-mono text-right outline-none ${isPagamento ? 'text-emerald-300' : 'text-indigo-300'}`}
+                                            placeholder="0"
+                                          />
+                                          <div className="flex gap-0.5 shrink-0">
+                                            {isExpEdit ? (
+                                              <button onClick={() => saveCardExpense(item, exp)} className="p-1 bg-emerald-500/20 text-emerald-400 rounded">
+                                                <Check className="w-2.5 h-2.5" />
+                                              </button>
+                                            ) : (
+                                              <button onClick={() => setEditingCardExpenses(p => ({...p, [exp.id]: true}))} className="p-1 text-white/20 hover:text-white opacity-0 group-hover:opacity-100 rounded transition-all">
+                                                <Edit2 className="w-2.5 h-2.5" />
+                                              </button>
+                                            )}
+                                            <button onClick={() => removeCardExpense(item, exp.id)} className="p-1 text-white/20 hover:text-rose-400 opacity-0 group-hover:opacity-100 rounded transition-all">
+                                              <Trash2 className="w-2.5 h-2.5" />
+                                            </button>
+                                          </div>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                  {/* Linha de adicionar despesa + total */}
+                                  <div className="flex items-center justify-between px-4 py-2 border-t border-white/5">
+                                    <button
+                                      onClick={() => addCardExpense(item)}
+                                      className="flex items-center gap-1 text-[11px] text-white/40 hover:text-white/70 transition-colors"
+                                    >
+                                      <Plus className="w-3 h-3" /> Adicionar compra
+                                    </button>
+                                    {hasExpenses && (
+                                      <span className={`text-xs font-mono font-bold ${isPagamento ? 'text-emerald-400' : 'text-indigo-400'}`}>
+                                        = {formatCurrency(autoTotal)}
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                              )}
                             </div>
                           );
                         })}
                         {items.filter(i => i.type.startsWith('card_')).length === 0 && (
-                          <div className="px-3 py-4 text-center text-white/20 text-xs">Nenhum cartÃ£o</div>
+                          <div className="px-3 py-4 text-center text-white/20 text-xs">Nenhum cart\u00e3o</div>
                         )}
                       </div>
                       <div className="px-4 py-2.5 border-t border-white/5 bg-black/20 flex justify-between items-center">
