@@ -4,7 +4,7 @@ import { supabase } from './lib/supabaseClient';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, PieChart, Pie, Cell } from 'recharts';
 
 const MONTH_NAMES = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
-const PIE_COLORS = ['#10b981', '#3b82f6', '#f43f5e', '#8b5cf6', '#f59e0b', '#64748b'];
+const PIE_COLORS = ['#10b981', '#3b82f6', '#f43f5e', '#8b5cf6', '#f59e0b', '#64748b', '#ec4899', '#14b8a6', '#f97316', '#6366f1'];
 
 const formatCurrency = (value: number) => {
   return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value);
@@ -241,23 +241,32 @@ export default function App() {
 
   const pieChartData = useMemo(() => {
     const expenses = items.filter(i => i.type.startsWith('expense_') || i.type.startsWith('card_'));
-    const sorted = [...expenses].sort((a, b) => {
-      const aVal = Math.max(Number(a.pagamento)||0, Number(a.vale)||0);
-      const bVal = Math.max(Number(b.pagamento)||0, Number(b.vale)||0);
-      return bVal - aVal;
-    });
+    
+    // Agrupar gastos com o mesmo nome (ex: "CARRO RENATO" no pagamento e no vale)
+    const grouped = expenses.reduce((acc, curr) => {
+      const name = curr.name?.trim() || 'Sem nome';
+      const totalVal = (Number(curr.pagamento)||0) + (Number(curr.vale)||0);
+      if (totalVal > 0) {
+        acc[name] = (acc[name] || 0) + totalVal;
+      }
+      return acc;
+    }, {} as Record<string, number>);
 
-    const top5 = sorted.slice(0, 5);
-    const others = sorted.slice(5);
+    const sorted = Object.entries(grouped)
+      .map(([name, value]) => ({ name, value }))
+      .sort((a, b) => b.value - a.value);
 
-    const data = top5.map(item => ({
-      name: item.name || 'Sem nome',
-      value: Math.max(Number(item.pagamento)||0, Number(item.vale)||0)
-    }));
+    // Pegar os 7 maiores, o resto agrupa em "Outros"
+    const topN = sorted.slice(0, 7);
+    const others = sorted.slice(7);
+
+    const data = [...topN];
 
     if (others.length > 0) {
-      const othersTotal = others.reduce((acc, curr) => acc + Math.max(Number(curr.pagamento)||0, Number(curr.vale)||0), 0);
-      data.push({ name: 'Outros', value: othersTotal });
+      const othersTotal = others.reduce((acc, curr) => acc + curr.value, 0);
+      if (othersTotal > 0) {
+        data.push({ name: 'Outros', value: othersTotal });
+      }
     }
 
     return data;
