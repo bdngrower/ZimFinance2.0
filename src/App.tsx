@@ -269,20 +269,8 @@ export default function App() {
       .map(([name, value]) => ({ name, value }))
       .sort((a, b) => b.value - a.value);
 
-    // Pegar os 7 maiores, o resto agrupa em "Outros"
-    const topN = sorted.slice(0, 7);
-    const others = sorted.slice(7);
-
-    const data = [...topN];
-
-    if (others.length > 0) {
-      const othersTotal = others.reduce((acc, curr) => acc + curr.value, 0);
-      if (othersTotal > 0) {
-        data.push({ name: 'Outros', value: othersTotal });
-      }
-    }
-
-    return data;
+    // Retorna todos os itens, sem agrupar os menores em "Outros"
+    return sorted;
   }, [items]);
 
   if (authLoading) {
