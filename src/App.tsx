@@ -42,6 +42,7 @@ export default function App() {
 
   const [yearData, setYearData] = useState<any[]>([]);
   const [annualTotals, setAnnualTotals] = useState({ income: 0, expense: 0 });
+  const [showMonthPicker, setShowMonthPicker] = useState(false);
 
   const currentMonthId = `${currentYear}-${String(currentMonthIndex + 1).padStart(2, '0')}`;
 
@@ -108,7 +109,7 @@ export default function App() {
     });
 
     setYearData(chartData);
-    setAnnualTotals({ income: totalInc, expense: totalExp });
+    setAnnualTotals({ income: totalInc, expense: totalExp, balance: totalInc - totalExp } as any);
   };
 
   const fetchData = async () => {
@@ -449,116 +450,154 @@ export default function App() {
         <div className="fixed top-[-10%] left-[-10%] w-[40%] h-[40%] rounded-full bg-emerald-600/20 blur-[120px] pointer-events-none" />
         <div className="fixed bottom-[10%] right-[-10%] w-[40%] h-[40%] rounded-full bg-indigo-600/20 blur-[120px] pointer-events-none" />
 
-        {/* Top Header - Month Selector */}
-        <header className="h-24 px-8 border-b border-white/10 flex flex-col sm:flex-row items-start sm:items-center justify-between bg-white/5 backdrop-blur-xl z-40">
-          <div>
-            <h2 className="text-2xl font-bold text-white">
-              {activeView === 'dashboard' ? 'Dashboard Financeiro' : 'Controle de Lançamentos'}
-            </h2>
-            <p className="text-white/50 text-sm mt-1">Gerencie seu patrimônio e despesas</p>
-          </div>
+        {/* Top Header */}
+        <header className="h-16 px-8 border-b border-white/10 flex items-center justify-between bg-white/5 backdrop-blur-xl z-40">
+          <h2 className="text-lg font-bold text-white/90">
+            {activeView === 'dashboard' ? 'Dashboard Financeiro' : 'Controle de Lan\u00e7amentos'}
+          </h2>
           
-          <div className="flex items-center gap-2 mt-4 sm:mt-0 bg-black/40 p-2 rounded-2xl border border-white/10">
-            <button onClick={() => setCurrentYear(y => y - 1)} className="p-2 text-white/50 hover:text-white hover:bg-white/10 rounded-xl transition-colors"><ChevronLeft className="w-4 h-4"/></button>
-            <span className="w-12 text-center font-bold text-emerald-400 font-mono text-sm">{currentYear}</span>
-            <button onClick={() => setCurrentYear(y => y + 1)} className="p-2 text-white/50 hover:text-white hover:bg-white/10 rounded-xl transition-colors"><ChevronRight className="w-4 h-4"/></button>
+          <div className="flex items-center gap-1 bg-black/40 px-1.5 py-1 rounded-xl border border-white/10 relative">
+            <button onClick={() => setCurrentYear(y => y - 1)} className="p-1.5 text-white/40 hover:text-white hover:bg-white/10 rounded-lg transition-colors"><ChevronLeft className="w-3.5 h-3.5"/></button>
+            <span className="w-10 text-center font-bold text-emerald-400 font-mono text-xs">{currentYear}</span>
+            <button onClick={() => setCurrentYear(y => y + 1)} className="p-1.5 text-white/40 hover:text-white hover:bg-white/10 rounded-lg transition-colors"><ChevronRight className="w-3.5 h-3.5"/></button>
             
-            <div className="w-[1px] h-6 bg-white/10 mx-1"></div>
+            <div className="w-px h-5 bg-white/10 mx-0.5"></div>
             
             <button onClick={() => {
               if (currentMonthIndex === 0) { setCurrentMonthIndex(11); setCurrentYear(y => y - 1); }
               else { setCurrentMonthIndex(m => m - 1); }
-            }} className="p-2 text-white/50 hover:text-white hover:bg-white/10 rounded-xl transition-colors"><ChevronLeft className="w-4 h-4"/></button>
-            <span className="w-24 text-center font-bold text-white text-sm">{MONTH_NAMES[currentMonthIndex]}</span>
+            }} className="p-1.5 text-white/40 hover:text-white hover:bg-white/10 rounded-lg transition-colors"><ChevronLeft className="w-3.5 h-3.5"/></button>
+            <button
+              onClick={() => setShowMonthPicker(p => !p)}
+              className={`px-3 py-1 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                currentMonthIndex === realCurrentMonth && currentYear === realCurrentYear
+                  ? 'text-emerald-400 bg-emerald-500/15'
+                  : 'text-white/80 hover:bg-white/10'
+              }`}
+            >
+              {MONTH_NAMES[currentMonthIndex].substring(0, 3)}
+            </button>
             <button onClick={() => {
               if (currentMonthIndex === 11) { setCurrentMonthIndex(0); setCurrentYear(y => y + 1); }
               else { setCurrentMonthIndex(m => m + 1); }
-            }} className="p-2 text-white/50 hover:text-white hover:bg-white/10 rounded-xl transition-colors"><ChevronRight className="w-4 h-4"/></button>
+            }} className="p-1.5 text-white/40 hover:text-white hover:bg-white/10 rounded-lg transition-colors"><ChevronRight className="w-3.5 h-3.5"/></button>
+
+            {/* Month Picker Grid */}
+            {showMonthPicker && (
+              <>
+                <div className="fixed inset-0 z-40" onClick={() => setShowMonthPicker(false)} />
+                <div className="absolute top-full right-0 mt-2 z-50 bg-[#1a1d23] border border-white/10 rounded-2xl p-3 shadow-2xl backdrop-blur-xl w-64 animate-in fade-in zoom-in-95 duration-150">
+                  <div className="grid grid-cols-3 gap-1.5">
+                    {MONTH_NAMES.map((m, idx) => {
+                      const isActive = idx === currentMonthIndex;
+                      const isCurrent = idx === realCurrentMonth && currentYear === realCurrentYear;
+                      return (
+                        <button
+                          key={m}
+                          onClick={() => { setCurrentMonthIndex(idx); setShowMonthPicker(false); }}
+                          className={`px-2 py-2 rounded-xl text-xs font-bold transition-all ${
+                            isActive
+                              ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/25'
+                              : isCurrent
+                                ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
+                                : 'text-white/60 hover:bg-white/10 hover:text-white'
+                          }`}
+                        >
+                          {m.substring(0, 3)}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </>
+            )}
           </div>
         </header>
 
-        <div className="flex-1 overflow-y-auto p-8 relative z-10 custom-scrollbar">
+        <div className="flex-1 overflow-y-auto p-6 relative z-10 custom-scrollbar">
           {loading ? (
             <div className="flex flex-col items-center justify-center h-full">
-              <Loader2 className="w-10 h-10 animate-spin text-emerald-500 mb-4" />
+              <Loader2 className="w-8 h-8 animate-spin text-emerald-500" />
             </div>
           ) : (
-            <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500 max-w-[1600px] mx-auto">
+            <div className="space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-500 max-w-[1600px] mx-auto">
               
-              {/* Top Monthly Stats - Always Visible */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <div className="bg-white/5 backdrop-blur-xl p-6 rounded-3xl border border-white/10 shadow-2xl hover:-translate-y-1 hover:border-emerald-500/30 transition-all duration-300 group">
-                  <div className="flex items-center justify-between mb-2">
-                    <h3 className="text-white/60 font-bold text-xs uppercase tracking-widest group-hover:text-white/80 transition-colors">Receitas do Mês</h3>
-                    <TrendingUp className="w-5 h-5 text-emerald-400 group-hover:scale-110 transition-transform" />
-                  </div>
-                  <p className="text-3xl font-extrabold text-white font-mono tracking-tight">{formatCurrency(totals.totalIncome)}</p>
-                </div>
-                <div className="bg-white/5 backdrop-blur-xl p-6 rounded-3xl border border-white/10 shadow-2xl hover:-translate-y-1 hover:border-rose-500/30 transition-all duration-300 group">
-                  <div className="flex items-center justify-between mb-2">
-                    <h3 className="text-white/60 font-bold text-xs uppercase tracking-widest group-hover:text-white/80 transition-colors">Gastos do Mês</h3>
-                    <TrendingDown className="w-5 h-5 text-rose-400 group-hover:scale-110 transition-transform" />
-                  </div>
-                  <p className="text-3xl font-extrabold text-white font-mono tracking-tight">{formatCurrency(totals.totalExpenses)}</p>
-                </div>
-                <div className={`p-6 rounded-3xl border shadow-2xl transition-all duration-300 hover:-translate-y-1 group flex flex-col justify-between ${totals.totalRemaining >= 0 ? 'bg-emerald-500/10 border-emerald-500/30 hover:shadow-emerald-500/20' : 'bg-rose-500/10 border-rose-500/30 hover:shadow-rose-500/20'}`}>
-                  <div>
-                    <div className="flex items-center justify-between mb-2">
-                      <h3 className="text-white/80 font-bold text-xs uppercase tracking-widest group-hover:text-white transition-colors">Saldo do Mês</h3>
-                      <DollarSign className={`w-5 h-5 group-hover:scale-110 transition-transform ${totals.totalRemaining >= 0 ? 'text-emerald-400' : 'text-rose-400'}`} />
+              {/* Top Monthly Stats - Compact */}
+              <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+                {[
+                  { label: 'Receita Mensal', value: totals.totalIncome, icon: TrendingUp, color: 'emerald', sub: null },
+                  { label: 'Gastos Mensal', value: totals.totalExpenses, icon: TrendingDown, color: 'rose', sub: null },
+                  { label: 'Saldo Pgto', value: totals.remainingPagamento, icon: DollarSign, color: totals.remainingPagamento >= 0 ? 'emerald' : 'rose', sub: `Rec: ${formatCurrency(totals.totalPagamentoIncome)}` },
+                  { label: 'Saldo Adto', value: totals.remainingVale, icon: Wallet, color: totals.remainingVale >= 0 ? 'indigo' : 'rose', sub: `Rec: ${formatCurrency(totals.totalValeIncome)}` },
+                  { label: 'Saldo Total', value: totals.totalRemaining, icon: DollarSign, color: totals.totalRemaining >= 0 ? 'emerald' : 'rose', sub: null },
+                ].map((card, idx) => {
+                  const Icon = card.icon;
+                  const colorMap: Record<string, string> = {
+                    emerald: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20',
+                    rose: 'text-rose-400 bg-rose-500/10 border-rose-500/20',
+                    indigo: 'text-indigo-400 bg-indigo-500/10 border-indigo-500/20',
+                  };
+                  const colors = colorMap[card.color] || colorMap.emerald;
+                  const textColor = card.color === 'rose' ? 'text-rose-400' : card.color === 'indigo' ? 'text-indigo-400' : 'text-emerald-400';
+                  return (
+                    <div key={idx} className={`${idx === 4 ? 'col-span-2 lg:col-span-1' : ''} bg-white/5 backdrop-blur-xl rounded-2xl border border-white/10 p-4 hover:border-white/20 transition-all group`}>
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-[10px] font-bold text-white/40 uppercase tracking-widest">{card.label}</span>
+                        <div className={`p-1.5 rounded-lg border ${colors}`}>
+                          <Icon className="w-3 h-3" />
+                        </div>
+                      </div>
+                      <p className={`text-xl font-extrabold font-mono tracking-tight ${textColor}`}>{formatCurrency(card.value)}</p>
+                      {card.sub && <p className="text-[10px] text-white/30 font-mono mt-1">{card.sub}</p>}
                     </div>
-                    <p className={`text-3xl font-extrabold font-mono tracking-tight mb-4 ${totals.totalRemaining >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                      {formatCurrency(totals.totalRemaining)}
-                    </p>
-                  </div>
-                  
-                  {/* Detailed remaining balance */}
-                  <div className="flex justify-between items-center text-[10px] font-bold uppercase tracking-widest pt-4 border-t border-white/10">
-                    <div className="flex flex-col gap-1">
-                      <span className="text-white/50">Pagamento</span>
-                      <span className={`font-mono text-sm ${totals.remainingPagamento >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{formatCurrency(totals.remainingPagamento)}</span>
-                    </div>
-                    <div className="flex flex-col gap-1 text-right">
-                      <span className="text-white/50">Adiantamento</span>
-                      <span className={`font-mono text-sm ${totals.remainingVale >= 0 ? 'text-indigo-400' : 'text-rose-400'}`}>{formatCurrency(totals.remainingVale)}</span>
-                    </div>
-                  </div>
-                </div>
+                  );
+                })}
               </div>
 
               {activeView === 'dashboard' ? (
                 /* Annual Stats & Charts */
-                <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
-                  <div className="xl:col-span-2 bg-white/5 backdrop-blur-xl p-6 rounded-3xl border border-white/10 flex flex-col shadow-2xl">
-                    <div className="flex justify-between items-center mb-6">
-                      <h3 className="text-lg font-bold text-white flex items-center">
-                        <TrendingUp className="w-5 h-5 mr-3 text-indigo-400" />
-                        Visão Anual ({currentYear})
-                      </h3>
-                      <div className="flex gap-4 text-xs font-bold text-white/50 uppercase tracking-widest bg-black/20 px-4 py-2 rounded-xl">
-                        <span>Total Receita: <span className="text-emerald-400">{formatCurrency(annualTotals.income)}</span></span>
-                        <span>Total Gasto: <span className="text-rose-400">{formatCurrency(annualTotals.expense)}</span></span>
-                      </div>
+                <div className="space-y-4">
+                  {/* Annual summary strip */}
+                  <div className="grid grid-cols-3 gap-3">
+                    <div className="bg-emerald-500/5 border border-emerald-500/15 rounded-xl px-4 py-3 flex items-center justify-between">
+                      <span className="text-[10px] font-bold text-white/40 uppercase tracking-widest">Receita Anual</span>
+                      <span className="text-sm font-mono font-bold text-emerald-400">{formatCurrency(annualTotals.income)}</span>
                     </div>
-                    <div className="flex-1 w-full min-h-[300px]">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <BarChart data={yearData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                          <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
-                          <XAxis dataKey="name" stroke="rgba(255,255,255,0.4)" fontSize={12} tickLine={false} axisLine={false} />
-                          <YAxis stroke="rgba(255,255,255,0.4)" fontSize={12} tickFormatter={(val) => `R$${val/1000}k`} tickLine={false} axisLine={false} />
-                          <Tooltip cursor={{ fill: 'rgba(255,255,255,0.05)' }} contentStyle={{ backgroundColor: '#0f1115', borderColor: 'rgba(255,255,255,0.1)', borderRadius: '16px', color: '#fff' }} />
-                          <Legend iconType="circle" wrapperStyle={{ fontSize: '12px', paddingTop: '10px' }} />
-                          <Bar dataKey="Receitas" fill="#10b981" radius={[4, 4, 0, 0]} maxBarSize={40} />
-                          <Bar dataKey="Despesas" fill="#f43f5e" radius={[4, 4, 0, 0]} maxBarSize={40} />
-                        </BarChart>
-                      </ResponsiveContainer>
+                    <div className="bg-rose-500/5 border border-rose-500/15 rounded-xl px-4 py-3 flex items-center justify-between">
+                      <span className="text-[10px] font-bold text-white/40 uppercase tracking-widest">Gasto Anual</span>
+                      <span className="text-sm font-mono font-bold text-rose-400">{formatCurrency(annualTotals.expense)}</span>
+                    </div>
+                    <div className={`${(annualTotals as any).balance >= 0 ? 'bg-emerald-500/10 border-emerald-500/20' : 'bg-rose-500/10 border-rose-500/20'} border rounded-xl px-4 py-3 flex items-center justify-between`}>
+                      <span className="text-[10px] font-bold text-white/40 uppercase tracking-widest">Proje\u00e7\u00e3o Anual</span>
+                      <span className={`text-sm font-mono font-bold ${(annualTotals as any).balance >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{formatCurrency((annualTotals as any).balance || 0)}</span>
                     </div>
                   </div>
 
-                  <div className="xl:col-span-1 bg-white/5 backdrop-blur-xl p-6 rounded-3xl border border-white/10 flex flex-col shadow-2xl">
-                    <h3 className="text-lg font-bold text-white mb-6 flex items-center">
-                      <PieChartIcon className="w-5 h-5 mr-3 text-emerald-400" />
-                      Maiores Gastos do Mês
+                  <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
+                    <div className="xl:col-span-2 bg-white/5 backdrop-blur-xl p-5 rounded-2xl border border-white/10 flex flex-col shadow-xl">
+                      <h3 className="text-sm font-bold text-white/70 mb-4 flex items-center gap-2">
+                        <TrendingUp className="w-4 h-4 text-indigo-400" />
+                        Vis\u00e3o Anual ({currentYear})
+                      </h3>
+                      <div className="flex-1 w-full min-h-[260px]">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <BarChart data={yearData} margin={{ top: 5, right: 5, left: -25, bottom: 0 }}>
+                            <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
+                            <XAxis dataKey="name" stroke="rgba(255,255,255,0.3)" fontSize={11} tickLine={false} axisLine={false} />
+                            <YAxis stroke="rgba(255,255,255,0.3)" fontSize={10} tickFormatter={(val) => `${val/1000}k`} tickLine={false} axisLine={false} />
+                            <Tooltip cursor={{ fill: 'rgba(255,255,255,0.05)' }} contentStyle={{ backgroundColor: '#0f1115', borderColor: 'rgba(255,255,255,0.1)', borderRadius: '12px', color: '#fff', fontSize: '12px' }} />
+                            <Legend iconType="circle" wrapperStyle={{ fontSize: '11px', paddingTop: '8px' }} />
+                            <Bar dataKey="Receitas" fill="#10b981" radius={[3, 3, 0, 0]} maxBarSize={32} />
+                            <Bar dataKey="Despesas" fill="#f43f5e" radius={[3, 3, 0, 0]} maxBarSize={32} />
+                          </BarChart>
+                        </ResponsiveContainer>
+                      </div>
+                    </div>
+
+                    <div className="xl:col-span-1 bg-white/5 backdrop-blur-xl p-5 rounded-2xl border border-white/10 flex flex-col shadow-xl">
+                      <h3 className="text-sm font-bold text-white/70 mb-4 flex items-center gap-2">
+                        <PieChartIcon className="w-4 h-4 text-emerald-400" />
+                        Maiores Gastos
                     </h3>
                     {pieChartData.length > 0 ? (
                       <div className="flex-1 w-full min-h-[300px]">
@@ -582,45 +621,45 @@ export default function App() {
                     )}
                   </div>
                 </div>
+              </div>
               ) : (
-                <div className="space-y-5">
-                  {/* Receitas Compactas */}
-                  <div className="bg-white/5 backdrop-blur-xl rounded-2xl border border-white/10 overflow-hidden shadow-xl">
-                    <div className="px-5 py-3 border-b border-white/5 flex justify-between items-center">
-                      <h2 className="text-sm font-bold text-white flex items-center gap-2">
-                        <TrendingUp className="w-4 h-4 text-emerald-400" />
-                        Receitas do Mês
-                      </h2>
+                <div className="space-y-4">
+                  {/* Receitas - Inline strip */}
+                  <div className="bg-white/5 backdrop-blur-xl rounded-2xl border border-white/10 overflow-hidden">
+                    <div className="flex items-center justify-between px-4 py-2.5 border-b border-white/5">
+                      <span className="text-[10px] font-bold text-white/40 uppercase tracking-widest flex items-center gap-1.5">
+                        <TrendingUp className="w-3 h-3 text-emerald-400" /> Receitas
+                      </span>
                       {editingIncome ? (
-                        <button onClick={saveIncome} className="flex items-center gap-1.5 text-emerald-400 bg-emerald-500/20 hover:bg-emerald-500/30 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all">
+                        <button onClick={saveIncome} className="flex items-center gap-1 text-emerald-400 bg-emerald-500/20 hover:bg-emerald-500/30 px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all">
                           <Check className="w-3 h-3" /> Salvar
                         </button>
                       ) : (
-                        <button onClick={() => setEditingIncome(true)} className="flex items-center gap-1.5 text-white/40 hover:text-white bg-white/5 hover:bg-white/10 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all">
+                        <button onClick={() => setEditingIncome(true)} className="flex items-center gap-1 text-white/30 hover:text-white bg-white/5 hover:bg-white/10 px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all">
                           <Edit2 className="w-3 h-3" /> Editar
                         </button>
                       )}
                     </div>
-                    <div className="px-5 py-3 flex flex-wrap gap-4">
+                    <div className="px-4 py-2.5 flex flex-wrap gap-2">
                       {[
-                        { label: "Pagamento Base", field: "pagamento", color: "emerald" },
+                        { label: "Pagamento", field: "pagamento", color: "emerald" },
                         { label: "Adiantamento", field: "vale", color: "indigo" },
-                        { label: "Férias", field: "ferias", color: "emerald" },
+                        { label: "F\u00e9rias", field: "ferias", color: "emerald" },
                         ...(currentMonthIndex === 10 || currentMonthIndex === 11 ? [{ label: "13\u00ba Sal\u00e1rio", field: "decimoTerceiro", color: "emerald" }] : []),
                       ].map((inputMap) => (
-                        <div key={inputMap.field} className={`flex items-center gap-2 px-3 py-2 rounded-xl border transition-all ${editingIncome ? 'border-emerald-500/30 bg-emerald-500/5' : 'border-white/5 bg-black/20'}`}>
-                          <span className={`text-[10px] font-bold uppercase tracking-wider ${inputMap.color === 'indigo' ? 'text-indigo-400' : 'text-emerald-400'}`}>{inputMap.label}</span>
-                          <span className="text-white/30 text-xs">R$</span>
+                        <div key={inputMap.field} className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border transition-all text-xs ${editingIncome ? 'border-emerald-500/30 bg-emerald-500/5' : 'border-white/5 bg-black/20'}`}>
+                          <span className={`text-[9px] font-bold uppercase tracking-wider ${inputMap.color === 'indigo' ? 'text-indigo-400' : 'text-emerald-400'}`}>{inputMap.label}</span>
+                          <span className="text-white/20">R$</span>
                           <input
                             type="number"
-                            className="bg-transparent text-sm text-white font-mono font-bold outline-none w-24 placeholder-white/10"
+                            className="bg-transparent text-xs text-white font-mono font-bold outline-none w-20 placeholder-white/10"
                             value={income[inputMap.field as keyof typeof income] || ''}
                             onChange={(e) => updateIncomeLocal(inputMap.field, Number(e.target.value))}
                             readOnly={!editingIncome}
                             onWheel={(e) => (e.target as HTMLElement).blur()}
-                            placeholder="0.00"
+                            placeholder="0"
                           />
-                          {!editingIncome && <Lock className="w-2.5 h-2.5 text-white/20" />}
+                          {!editingIncome && <Lock className="w-2.5 h-2.5 text-white/15" />}
                         </div>
                       ))}
                     </div>
