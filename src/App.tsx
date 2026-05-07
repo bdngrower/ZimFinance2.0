@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Plus, Trash2, DollarSign, Wallet, TrendingDown, TrendingUp, Calendar, CreditCard, Loader2, ChevronLeft, ChevronRight, LogOut, Edit2, Check, Lock } from 'lucide-react';
+import { Plus, Trash2, DollarSign, Wallet, TrendingDown, TrendingUp, Calendar, CreditCard, Loader2, ChevronLeft, ChevronRight, LogOut, Edit2, Check, Lock, LayoutDashboard, Receipt } from 'lucide-react';
 import { supabase } from './lib/supabaseClient';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 
@@ -9,7 +9,7 @@ const formatCurrency = (value: number) => {
   return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value);
 };
 
-type ItemRecord = { id: string, name: string, pagamento: number, vale: number };
+type ItemRecord = { id: string, name: string, pagamento: number, vale: number, type: string };
 
 export default function App() {
   const [session, setSession] = useState<any>(null);
@@ -27,10 +27,11 @@ export default function App() {
   
   const [loading, setLoading] = useState(true);
   
+  const [activeTab, setActiveTab] = useState<'resumo' | 'pagamento' | 'vale'>('resumo');
+
   // Data for the currently selected month
   const [income, setIncome] = useState({ pagamento: 0, vale: 0, ferias: 0, decimoTerceiro: 0 });
-  const [expenses, setExpenses] = useState<ItemRecord[]>([]);
-  const [cards, setCards] = useState<ItemRecord[]>([]);
+  const [items, setItems] = useState<ItemRecord[]>([]);
 
   // Editing state for locking/unlocking inputs
   const [editingItems, setEditingItems] = useState<{ [key: string]: boolean }>({});
@@ -75,18 +76,16 @@ export default function App() {
   };
 
   const fetchYearData = async () => {
-    // Fetch all months for the current year
     const { data: months } = await supabase.from('months').select('*').eq('year', currentYear);
     if (!months) return;
 
-    // Fetch all items for the year
     const monthIds = months.map(m => m.id);
-    const { data: items } = await supabase.from('items').select('*').in('month_id', monthIds);
+    const { data: allItems } = await supabase.from('items').select('*').in('month_id', monthIds);
 
     const chartData = MONTH_NAMES.map((name, idx) => {
       const mId = `${currentYear}-${String(idx + 1).padStart(2, '0')}`;
       const monthDb = months.find(m => m.id === mId);
-      const mItems = items?.filter(i => i.month_id === mId) || [];
+      const mItems = allItems?.filter(i => i.month_id === mId) || [];
       
       const rec = monthDb ? (Number(monthDb.income_pagamento||0) + Number(monthDb.income_vale||0) + Number(monthDb.income_ferias||0) + Number(monthDb.income_decimo_terceiro||0)) : 0;
       const desp = mItems.reduce((acc, curr) => acc + (Number(curr.pagamento)||0) + (Number(curr.vale)||0), 0);
@@ -128,17 +127,15 @@ export default function App() {
       });
     }
 
-    const { data: items } = await supabase
+    const { data: currentItems } = await supabase
       .from('items')
       .select('*')
       .eq('month_id', currentMonthId);
 
-    if (items) {
-      setExpenses(items.filter(i => i.type === 'expense'));
-      setCards(items.filter(i => i.type === 'card'));
+    if (currentItems) {
+      setItems(currentItems);
     } else {
-      setExpenses([]);
-      setCards([]);
+      setItems([]);
     }
 
     setEditingItems({});
@@ -167,7 +164,7 @@ export default function App() {
     fetchYearData();
   };
 
-  const addItem = async (type: 'expense' | 'card') => {
+  const addItem = async (type: string) => {
     const newItem = {
       id: Math.random().toString(36).substr(2, 9),
       month_id: currentMonthId,
@@ -176,15 +173,13 @@ export default function App() {
       pagamento: 0,
       vale: 0
     };
-    const listUpdater = type === 'expense' ? setExpenses : setCards;
-    listUpdater(prev => [...prev, newItem]);
+    setItems(prev => [...prev, newItem]);
     await supabase.from('items').insert(newItem);
     setEditingItems(prev => ({ ...prev, [newItem.id]: true }));
   };
 
-  const removeItem = async (type: 'expense' | 'card', id: string) => {
-    const listUpdater = type === 'expense' ? setExpenses : setCards;
-    listUpdater(prev => prev.filter(item => item.id !== id));
+  const removeItem = async (id: string) => {
+    setItems(prev => prev.filter(item => item.id !== id));
     await supabase.from('items').delete().eq('id', id);
     fetchYearData();
   };
@@ -193,30 +188,31 @@ export default function App() {
     setIncome(prev => ({ ...prev, [field]: value }));
   };
 
-  const updateItemLocal = (type: 'expense' | 'card', id: string, field: string, value: string | number) => {
-    const listUpdater = type === 'expense' ? setExpenses : setCards;
-    listUpdater(prev => prev.map(item => item.id === id ? { ...item, [field]: value } : item));
+  const updateItemLocal = (id: string, field: string, value: string | number) => {
+    setItems(prev => prev.map(item => item.id === id ? { ...item, [field]: value } : item));
   };
 
   const totals = useMemo(() => {
-    const expensesPagamento = expenses.reduce((acc, curr) => acc + (Number(curr.pagamento) || 0), 0);
-    const expensesVale = expenses.reduce((acc, curr) => acc + (Number(curr.vale) || 0), 0);
-    
-    const cardsPagamento = cards.reduce((acc, curr) => acc + (Number(curr.pagamento) || 0), 0);
-    const cardsVale = cards.reduce((acc, curr) => acc + (Number(curr.vale) || 0), 0);
+    const expensesPagamento = items.filter(i => i.type === 'expense_pagamento').reduce((a, c) => a + (Number(c.pagamento)||0), 0);
+    const expensesVale = items.filter(i => i.type === 'expense_vale').reduce((a, c) => a + (Number(c.vale)||0), 0);
+    const cardsPagamento = items.filter(i => i.type === 'card_pagamento').reduce((a, c) => a + (Number(c.pagamento)||0), 0);
+    const cardsVale = items.filter(i => i.type === 'card_vale').reduce((a, c) => a + (Number(c.vale)||0), 0);
 
-    const totalIncome = (Number(income.pagamento)||0) + (Number(income.vale)||0) + (Number(income.ferias)||0) + (Number(income.decimoTerceiro)||0);
+    const totalPagamentoIncome = (Number(income.pagamento)||0) + (Number(income.ferias)||0) + (Number(income.decimoTerceiro)||0);
+    const totalValeIncome = (Number(income.vale)||0);
+
+    const totalIncome = totalPagamentoIncome + totalValeIncome;
     
     const totalDespesasPagamento = expensesPagamento + cardsPagamento;
     const totalDespesasVale = expensesVale + cardsVale;
     const totalExpenses = totalDespesasPagamento + totalDespesasVale;
     
-    const remainingPagamento = (Number(income.pagamento)||0) - totalDespesasPagamento;
-    const remainingVale = (Number(income.vale)||0) - totalDespesasVale;
+    const remainingPagamento = totalPagamentoIncome - totalDespesasPagamento;
+    const remainingVale = totalValeIncome - totalDespesasVale;
     const totalRemaining = totalIncome - totalExpenses;
 
-    return { totalDespesasPagamento, totalDespesasVale, totalIncome, totalExpenses, remainingPagamento, remainingVale, totalRemaining };
-  }, [income, expenses, cards]);
+    return { totalDespesasPagamento, totalDespesasVale, totalIncome, totalExpenses, remainingPagamento, remainingVale, totalRemaining, totalPagamentoIncome, totalValeIncome };
+  }, [income, items]);
 
   if (authLoading) {
     return <div className="min-h-screen bg-[#0f1115] flex items-center justify-center"><Loader2 className="w-10 h-10 animate-spin text-emerald-500" /></div>;
@@ -266,113 +262,97 @@ export default function App() {
     );
   }
 
-  const ItemList = ({ title, icon: Icon, type, data, colorClass }: any) => (
-    <div className="bg-white/5 backdrop-blur-xl rounded-3xl border border-white/10 overflow-hidden mb-8 shadow-2xl">
-      <div className="p-6 border-b border-white/5 flex justify-between items-center bg-white/5">
-        <h2 className="text-xl font-bold flex items-center text-white">
-          <div className={`p-2 rounded-xl mr-4 bg-white/5`}>
-            <Icon className={`w-6 h-6 ${colorClass}`} />
-          </div>
-          {title}
-        </h2>
-        <button 
-          onClick={() => addItem(type)}
-          className="flex items-center space-x-2 text-white bg-white/10 hover:bg-white/20 px-5 py-2.5 rounded-xl text-sm font-semibold transition-all hover:scale-105 active:scale-95"
-        >
-          <Plus className="w-4 h-4" />
-          <span className="hidden sm:inline">Adicionar</span>
-        </button>
-      </div>
-      
-      <div className="p-6 space-y-4">
-        {data.length === 0 && (
-          <div className="flex flex-col items-center justify-center py-10 text-white/40">
-            <Icon className="w-12 h-12 mb-3 opacity-20" />
-            <p className="text-sm font-medium">Nenhum item adicionado.</p>
-          </div>
-        )}
-        {data.map((item: any) => {
-          const isEdit = editingItems[item.id];
-          return (
-            <div key={item.id} className={`flex flex-col sm:flex-row gap-4 items-start sm:items-center p-4 rounded-2xl border transition-all ${isEdit ? 'bg-white/10 border-emerald-500/50 shadow-[0_0_15px_-3px_rgba(16,185,129,0.2)]' : 'bg-black/20 border-white/5 hover:bg-white/5'} group`}>
-              <div className="w-full sm:flex-1">
-                <label className="block text-[10px] font-bold text-white/40 uppercase tracking-wider mb-2 sm:hidden">Descrição</label>
-                <input 
-                  type="text" 
-                  value={item.name}
-                  onChange={(e) => updateItemLocal(type, item.id, 'name', e.target.value)}
-                  readOnly={!isEdit}
-                  className={`w-full bg-transparent border-none focus:ring-0 p-1 text-base font-semibold text-white placeholder-white/20 outline-none ${!isEdit && 'opacity-80'}`}
-                  placeholder={type === 'card' ? 'Nome do Cartão' : 'Nome da Conta'}
-                />
-              </div>
-              
-              <div className="flex w-full sm:w-auto gap-4 items-end sm:items-center">
-                <div className={`flex-1 sm:w-36 rounded-xl p-1 px-3 border transition-colors ${isEdit ? 'bg-black/40 border-emerald-500/30' : 'bg-transparent border-transparent'}`}>
-                  <label className="block text-[10px] font-bold text-white/40 uppercase tracking-wider mb-1 mt-1">Pagamento</label>
-                  <div className="relative flex items-center pb-1">
-                    <span className="text-white/40 text-sm font-medium mr-1">R$</span>
-                    <input 
-                      type="number" 
-                      value={item.pagamento || ''}
-                      onWheel={(e) => (e.target as HTMLElement).blur()}
-                      onChange={(e) => updateItemLocal(type, item.id, 'pagamento', e.target.value)}
-                      readOnly={!isEdit}
-                      className={`w-full bg-transparent border-none focus:ring-0 p-0 text-sm font-mono text-white text-right outline-none ${!isEdit && 'opacity-80'}`}
-                      placeholder="0.00"
-                    />
-                  </div>
+  const ItemList = ({ title, icon: Icon, type, data, colorClass, source }: any) => {
+    const valueField = source === 'pagamento' ? 'pagamento' : 'vale';
+    
+    return (
+      <div className="bg-white/5 backdrop-blur-xl rounded-3xl border border-white/10 overflow-hidden shadow-2xl">
+        <div className="p-6 border-b border-white/5 flex justify-between items-center bg-white/5">
+          <h2 className="text-xl font-bold flex items-center text-white">
+            <div className={`p-2 rounded-xl mr-4 bg-white/5`}>
+              <Icon className={`w-6 h-6 ${colorClass}`} />
+            </div>
+            {title}
+          </h2>
+          <button 
+            onClick={() => addItem(type)}
+            className="flex items-center space-x-2 text-white bg-white/10 hover:bg-white/20 px-5 py-2.5 rounded-xl text-sm font-semibold transition-all hover:scale-105 active:scale-95"
+          >
+            <Plus className="w-4 h-4" />
+            <span className="hidden sm:inline">Adicionar</span>
+          </button>
+        </div>
+        
+        <div className="p-6 space-y-4">
+          {data.length === 0 && (
+            <div className="flex flex-col items-center justify-center py-10 text-white/40">
+              <Icon className="w-12 h-12 mb-3 opacity-20" />
+              <p className="text-sm font-medium">Nenhum item adicionado.</p>
+            </div>
+          )}
+          {data.map((item: any) => {
+            const isEdit = editingItems[item.id];
+            return (
+              <div key={item.id} className={`flex flex-col sm:flex-row gap-4 items-start sm:items-center p-4 rounded-2xl border transition-all ${isEdit ? 'bg-white/10 border-emerald-500/50 shadow-[0_0_15px_-3px_rgba(16,185,129,0.2)]' : 'bg-black/20 border-white/5 hover:bg-white/5'} group`}>
+                <div className="w-full sm:flex-1">
+                  <label className="block text-[10px] font-bold text-white/40 uppercase tracking-wider mb-2 sm:hidden">Descrição</label>
+                  <input 
+                    type="text" 
+                    value={item.name}
+                    onChange={(e) => updateItemLocal(item.id, 'name', e.target.value)}
+                    readOnly={!isEdit}
+                    className={`w-full bg-transparent border-none focus:ring-0 p-1 text-base font-semibold text-white placeholder-white/20 outline-none ${!isEdit && 'opacity-80'}`}
+                    placeholder="Nome da Conta"
+                  />
                 </div>
                 
-                <div className={`flex-1 sm:w-36 rounded-xl p-1 px-3 border transition-colors ${isEdit ? 'bg-black/40 border-emerald-500/30' : 'bg-transparent border-transparent'}`}>
-                  <label className="block text-[10px] font-bold text-white/40 uppercase tracking-wider mb-1 mt-1">Vale</label>
-                  <div className="relative flex items-center pb-1">
-                    <span className="text-white/40 text-sm font-medium mr-1">R$</span>
-                    <input 
-                      type="number" 
-                      value={item.vale || ''}
-                      onWheel={(e) => (e.target as HTMLElement).blur()}
-                      onChange={(e) => updateItemLocal(type, item.id, 'vale', e.target.value)}
-                      readOnly={!isEdit}
-                      className={`w-full bg-transparent border-none focus:ring-0 p-0 text-sm font-mono text-white text-right outline-none ${!isEdit && 'opacity-80'}`}
-                      placeholder="0.00"
-                    />
+                <div className="flex w-full sm:w-auto gap-4 items-end sm:items-center">
+                  <div className={`flex-1 sm:w-48 rounded-xl p-1 px-3 border transition-colors ${isEdit ? 'bg-black/40 border-emerald-500/30' : 'bg-transparent border-transparent'}`}>
+                    <label className="block text-[10px] font-bold text-white/40 uppercase tracking-wider mb-1 mt-1">Valor</label>
+                    <div className="relative flex items-center pb-1">
+                      <span className="text-white/40 text-sm font-medium mr-1">R$</span>
+                      <input 
+                        type="number" 
+                        value={item[valueField] || ''}
+                        onWheel={(e) => (e.target as HTMLElement).blur()}
+                        onChange={(e) => updateItemLocal(item.id, valueField, e.target.value)}
+                        readOnly={!isEdit}
+                        className={`w-full bg-transparent border-none focus:ring-0 p-0 text-sm font-mono text-white text-right outline-none ${!isEdit && 'opacity-80'}`}
+                        placeholder="0.00"
+                      />
+                    </div>
+                  </div>
+                  
+                  <div className="flex items-center gap-1">
+                    {isEdit ? (
+                      <button onClick={() => saveItem(item)} className="p-2.5 bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/40 rounded-xl transition-all" title="Salvar"><Check className="w-4 h-4" /></button>
+                    ) : (
+                      <button onClick={() => setEditingItems(p => ({...p, [item.id]: true}))} className="p-2.5 text-white/30 hover:text-white hover:bg-white/10 rounded-xl transition-all sm:opacity-0 group-hover:opacity-100" title="Editar"><Edit2 className="w-4 h-4" /></button>
+                    )}
+                    <button onClick={() => removeItem(item.id)} className="p-2.5 text-white/30 hover:text-rose-400 hover:bg-rose-400/10 rounded-xl transition-all sm:opacity-0 group-hover:opacity-100" title="Remover"><Trash2 className="w-4 h-4" /></button>
                   </div>
                 </div>
+              </div>
+            );
+          })}
 
-                <div className="flex items-center gap-1">
-                  {isEdit ? (
-                    <button onClick={() => saveItem(item)} className="p-2.5 bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/40 rounded-xl transition-all" title="Salvar"><Check className="w-4 h-4" /></button>
-                  ) : (
-                    <button onClick={() => setEditingItems(p => ({...p, [item.id]: true}))} className="p-2.5 text-white/30 hover:text-white hover:bg-white/10 rounded-xl transition-all sm:opacity-0 group-hover:opacity-100" title="Editar"><Edit2 className="w-4 h-4" /></button>
-                  )}
-                  <button onClick={() => removeItem(type, item.id)} className="p-2.5 text-white/30 hover:text-rose-400 hover:bg-rose-400/10 rounded-xl transition-all sm:opacity-0 group-hover:opacity-100" title="Remover"><Trash2 className="w-4 h-4" /></button>
+          {data.length > 0 && (
+            <div className="mt-6 pt-6 border-t border-white/10 flex flex-col sm:flex-row justify-between sm:items-center">
+              <span className="uppercase text-xs font-bold tracking-widest text-white/40 mb-3 sm:mb-0">
+                Subtotal
+              </span>
+              <div className="flex bg-black/20 py-2 px-6 rounded-2xl border border-white/5">
+                <div className="flex flex-col items-end">
+                  <span className="text-[9px] uppercase tracking-widest text-white/40">Total</span>
+                  <span className="text-white font-bold font-mono text-sm">{formatCurrency(data.reduce((a:any,c:any)=>a+Number(c[valueField]||0),0))}</span>
                 </div>
               </div>
             </div>
-          );
-        })}
-
-        {data.length > 0 && (
-          <div className="mt-6 pt-6 border-t border-white/10 flex flex-col sm:flex-row justify-between sm:items-center">
-            <span className="uppercase text-xs font-bold tracking-widest text-white/40 mb-3 sm:mb-0">
-              Subtotal {type === 'card' ? 'Cartões' : 'Contas'}
-            </span>
-            <div className="flex gap-6 sm:gap-8 bg-black/20 py-2 px-6 rounded-2xl border border-white/5">
-              <div className="flex flex-col items-end">
-                <span className="text-[9px] uppercase tracking-widest text-white/40">Pagamento</span>
-                <span className="text-white font-bold font-mono text-sm">{formatCurrency(data.reduce((a:any,c:any)=>a+Number(c.pagamento||0),0))}</span>
-              </div>
-              <div className="flex flex-col items-end">
-                <span className="text-[9px] uppercase tracking-widest text-white/40">Vale</span>
-                <span className="text-white font-bold font-mono text-sm">{formatCurrency(data.reduce((a:any,c:any)=>a+Number(c.vale||0),0))}</span>
-              </div>
-            </div>
-          </div>
-        )}
+          )}
+        </div>
       </div>
-    </div>
-  );
+    );
+  };
 
   return (
     <div className="min-h-screen bg-[#0f1115] text-white font-sans pb-40 selection:bg-emerald-500/30 relative overflow-hidden">
@@ -403,18 +383,49 @@ export default function App() {
         </div>
       </header>
 
+      {/* Top Tabs */}
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-6 relative z-10">
+        <div className="flex space-x-2 p-1 bg-black/40 border border-white/10 rounded-2xl w-fit">
+          <button 
+            onClick={() => setActiveTab('resumo')}
+            className={`flex items-center px-6 py-3 rounded-xl text-sm font-bold transition-all ${activeTab === 'resumo' ? 'bg-white/10 text-white shadow-lg' : 'text-white/50 hover:text-white hover:bg-white/5'}`}
+          >
+            <LayoutDashboard className="w-4 h-4 mr-2" />
+            Resumo Financeiro
+          </button>
+          <button 
+            onClick={() => setActiveTab('pagamento')}
+            className={`flex items-center px-6 py-3 rounded-xl text-sm font-bold transition-all ${activeTab === 'pagamento' ? 'bg-emerald-500/20 text-emerald-400 shadow-lg' : 'text-white/50 hover:text-emerald-400 hover:bg-white/5'}`}
+          >
+            <Receipt className="w-4 h-4 mr-2" />
+            Pagamento
+          </button>
+          <button 
+            onClick={() => setActiveTab('vale')}
+            className={`flex items-center px-6 py-3 rounded-xl text-sm font-bold transition-all ${activeTab === 'vale' ? 'bg-indigo-500/20 text-indigo-400 shadow-lg' : 'text-white/50 hover:text-indigo-400 hover:bg-white/5'}`}
+          >
+            <Receipt className="w-4 h-4 mr-2" />
+            Vale
+          </button>
+        </div>
+      </div>
+
       {loading ? (
-        <div className="flex flex-col items-center justify-center h-[60vh]">
+        <div className="flex flex-col items-center justify-center h-[50vh]">
           <Loader2 className="w-10 h-10 animate-spin text-emerald-500 mb-4" />
           <p className="text-white/50 font-medium animate-pulse">Carregando dados...</p>
         </div>
       ) : (
-        <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-8 space-y-8 relative z-10">
+        <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-6 space-y-8 relative z-10">
           
           {/* Dashboard Header / Selection Info */}
           <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white/5 p-6 rounded-3xl border border-white/10 backdrop-blur-xl">
             <div>
-              <h2 className="text-2xl font-bold text-white">Resumo Financeiro</h2>
+              <h2 className="text-2xl font-bold text-white">
+                {activeTab === 'resumo' && 'Dashboard Geral'}
+                {activeTab === 'pagamento' && 'Lançamentos: Pagamento'}
+                {activeTab === 'vale' && 'Lançamentos: Vale'}
+              </h2>
               <p className="text-white/50 mt-1 flex items-center">
                 <Calendar className="w-4 h-4 mr-2" />
                 {MONTH_NAMES[currentMonthIndex]} de {currentYear}
@@ -427,135 +438,171 @@ export default function App() {
             </div>
           </div>
 
-          {/* Charts & Summary Grid */}
-          <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-            
-            {/* Quick Stats */}
-            <div className="xl:col-span-1 space-y-6">
-              <div className="bg-white/5 backdrop-blur-xl p-6 rounded-3xl border border-white/10 relative overflow-hidden group hover:bg-white/10 transition-all duration-500">
-                <div className="flex items-center justify-between mb-4 relative z-10">
-                  <div className="bg-emerald-500/20 p-2.5 rounded-xl border border-emerald-500/30">
-                    <TrendingUp className="w-5 h-5 text-emerald-400" />
-                  </div>
-                  <h3 className="text-white/60 font-bold text-xs uppercase tracking-widest">Receitas do Mês</h3>
-                </div>
-                <p className="text-3xl font-extrabold text-white font-mono tracking-tight">{formatCurrency(totals.totalIncome)}</p>
-              </div>
-
-              <div className="bg-white/5 backdrop-blur-xl p-6 rounded-3xl border border-white/10 relative overflow-hidden group hover:bg-white/10 transition-all duration-500">
-                <div className="flex items-center justify-between mb-4 relative z-10">
-                  <div className="bg-rose-500/20 p-2.5 rounded-xl border border-rose-500/30">
-                    <TrendingDown className="w-5 h-5 text-rose-400" />
-                  </div>
-                  <h3 className="text-white/60 font-bold text-xs uppercase tracking-widest">Gastos do Mês</h3>
-                </div>
-                <p className="text-3xl font-extrabold text-white font-mono tracking-tight">{formatCurrency(totals.totalExpenses)}</p>
-              </div>
-
-              <div className={`p-6 rounded-3xl border relative overflow-hidden transition-all duration-500 ${totals.totalRemaining >= 0 ? 'bg-emerald-500/10 border-emerald-500/30 shadow-[0_0_30px_-5px_rgba(16,185,129,0.15)]' : 'bg-rose-500/10 border-rose-500/30 shadow-[0_0_30px_-5px_rgba(244,63,94,0.15)]'}`}>
-                <div className="flex items-center justify-between mb-4 relative z-10">
-                  <div className={`p-2.5 rounded-xl border ${totals.totalRemaining >= 0 ? 'bg-emerald-500/20 border-emerald-500/30' : 'bg-rose-500/20 border-rose-500/30'}`}>
-                    <DollarSign className={`w-5 h-5 ${totals.totalRemaining >= 0 ? 'text-emerald-400' : 'text-rose-400'}`} />
-                  </div>
-                  <h3 className="text-white/80 font-bold text-xs uppercase tracking-widest">Saldo Final</h3>
-                </div>
-                <p className={`text-4xl font-extrabold font-mono tracking-tight ${totals.totalRemaining >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                  {formatCurrency(totals.totalRemaining)}
-                </p>
-              </div>
-            </div>
-
-            {/* Annual Chart */}
-            <div className="xl:col-span-2 bg-white/5 backdrop-blur-xl p-6 rounded-3xl border border-white/10 shadow-2xl flex flex-col">
-              <h3 className="text-lg font-bold text-white mb-6 flex items-center">
-                <TrendingUp className="w-5 h-5 mr-3 text-indigo-400" />
-                Visão Geral do Ano ({currentYear})
-              </h3>
-              <div className="flex-1 w-full min-h-[250px]">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={yearData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
-                    <XAxis dataKey="name" stroke="rgba(255,255,255,0.4)" fontSize={12} tickLine={false} axisLine={false} />
-                    <YAxis stroke="rgba(255,255,255,0.4)" fontSize={12} tickFormatter={(val) => `R$${val/1000}k`} tickLine={false} axisLine={false} />
-                    <Tooltip cursor={{ fill: 'rgba(255,255,255,0.05)' }} contentStyle={{ backgroundColor: '#0f1115', borderColor: 'rgba(255,255,255,0.1)', borderRadius: '16px', color: '#fff' }} itemStyle={{ fontWeight: 'bold' }} />
-                    <Legend iconType="circle" wrapperStyle={{ fontSize: '12px', paddingTop: '10px' }} />
-                    <Bar dataKey="Receitas" fill="#10b981" radius={[4, 4, 0, 0]} maxBarSize={40} />
-                    <Bar dataKey="Despesas" fill="#f43f5e" radius={[4, 4, 0, 0]} maxBarSize={40} />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 pt-4">
-            <div className="lg:col-span-8 order-2 lg:order-1 space-y-8">
-              <ItemList 
-                title="Contas Fixas e Variáveis"
-                icon={TrendingDown}
-                type="expense"
-                data={expenses}
-                colorClass="text-rose-400"
-              />
-
-              <ItemList 
-                title="Faturas de Cartões"
-                icon={CreditCard}
-                type="card"
-                data={cards}
-                colorClass="text-indigo-400"
-              />
-            </div>
-
-            <div className="lg:col-span-4 order-1 lg:order-2">
-              <div className="bg-white/5 backdrop-blur-xl rounded-3xl border border-white/10 lg:sticky lg:top-28 shadow-2xl overflow-hidden transition-all">
-                <div className="p-6 border-b border-white/5 flex justify-between items-center">
-                  <h2 className="text-lg font-bold text-white flex items-center">
-                    <div className="bg-emerald-500/20 p-2 rounded-xl mr-3 border border-emerald-500/30">
+          {activeTab === 'resumo' && (
+            <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+              {/* Quick Stats */}
+              <div className="xl:col-span-1 space-y-6">
+                <div className="bg-white/5 backdrop-blur-xl p-6 rounded-3xl border border-white/10 relative overflow-hidden group hover:bg-white/10 transition-all duration-500">
+                  <div className="flex items-center justify-between mb-4 relative z-10">
+                    <div className="bg-emerald-500/20 p-2.5 rounded-xl border border-emerald-500/30">
                       <TrendingUp className="w-5 h-5 text-emerald-400" />
                     </div>
-                    Receitas do Mês
-                  </h2>
-                  {editingIncome ? (
-                    <button onClick={saveIncome} className="flex items-center space-x-2 text-emerald-400 bg-emerald-500/20 hover:bg-emerald-500/30 px-4 py-2 rounded-xl text-sm font-semibold transition-all">
-                      <Check className="w-4 h-4" /><span>Salvar</span>
-                    </button>
-                  ) : (
-                    <button onClick={() => setEditingIncome(true)} className="flex items-center space-x-2 text-white/50 bg-white/5 hover:text-white hover:bg-white/10 px-4 py-2 rounded-xl text-sm font-semibold transition-all">
-                      <Edit2 className="w-4 h-4" /><span>Editar</span>
-                    </button>
-                  )}
+                    <h3 className="text-white/60 font-bold text-xs uppercase tracking-widest">Receitas do Mês</h3>
+                  </div>
+                  <p className="text-3xl font-extrabold text-white font-mono tracking-tight">{formatCurrency(totals.totalIncome)}</p>
+                  <div className="mt-4 flex gap-4 text-xs font-bold text-white/40 uppercase tracking-widest">
+                    <span>Pag: <span className="text-emerald-400">{formatCurrency(totals.totalPagamentoIncome)}</span></span>
+                    <span>Vale: <span className="text-indigo-400">{formatCurrency(totals.totalValeIncome)}</span></span>
+                  </div>
                 </div>
-                
-                <div className="p-6 space-y-5">
-                  {[
-                    { label: "Pagamento", field: "pagamento", color: "emerald", show: true },
-                    { label: "Vale", field: "vale", color: "emerald", show: true },
-                    { label: "Férias", field: "ferias", color: "amber", show: true },
-                    { label: "13º Salário", field: "decimoTerceiro", color: "amber", show: currentMonthIndex === 10 || currentMonthIndex === 11 }, // Only Nov/Dec
-                  ].filter(i => i.show).map((inputMap) => (
-                    <div key={inputMap.field} className={`bg-black/20 p-4 rounded-2xl border transition-colors ${editingIncome ? 'border-white/10 focus-within:border-emerald-500/50' : 'border-transparent'}`}>
-                      <label className="flex items-center justify-between text-[10px] font-bold text-white/40 uppercase tracking-widest mb-3">
-                        {inputMap.label}
-                        {!editingIncome && <Lock className="w-3 h-3 text-white/20" />}
-                      </label>
-                      <div className="relative flex items-center">
-                        <span className="text-white/40 font-medium mr-2">R$</span>
-                        <input 
-                          type="number" 
-                          className={`w-full bg-transparent border-none focus:ring-0 p-0 text-xl text-white font-mono font-semibold outline-none placeholder-white/10 ${!editingIncome && 'opacity-80 cursor-default'}`}
-                          value={income[inputMap.field as keyof typeof income] || ''}
-                          onChange={(e) => updateIncomeLocal(inputMap.field, Number(e.target.value))}
-                          readOnly={!editingIncome}
-                          onWheel={(e) => (e.target as HTMLElement).blur()}
-                          placeholder="0.00"
-                        />
-                      </div>
+
+                <div className="bg-white/5 backdrop-blur-xl p-6 rounded-3xl border border-white/10 relative overflow-hidden group hover:bg-white/10 transition-all duration-500">
+                  <div className="flex items-center justify-between mb-4 relative z-10">
+                    <div className="bg-rose-500/20 p-2.5 rounded-xl border border-rose-500/30">
+                      <TrendingDown className="w-5 h-5 text-rose-400" />
                     </div>
-                  ))}
+                    <h3 className="text-white/60 font-bold text-xs uppercase tracking-widest">Gastos do Mês</h3>
+                  </div>
+                  <p className="text-3xl font-extrabold text-white font-mono tracking-tight">{formatCurrency(totals.totalExpenses)}</p>
+                  <div className="mt-4 flex gap-4 text-xs font-bold text-white/40 uppercase tracking-widest">
+                    <span>Pag: <span className="text-rose-400">{formatCurrency(totals.totalDespesasPagamento)}</span></span>
+                    <span>Vale: <span className="text-rose-400">{formatCurrency(totals.totalDespesasVale)}</span></span>
+                  </div>
+                </div>
+
+                <div className={`p-6 rounded-3xl border relative overflow-hidden transition-all duration-500 ${totals.totalRemaining >= 0 ? 'bg-emerald-500/10 border-emerald-500/30 shadow-[0_0_30px_-5px_rgba(16,185,129,0.15)]' : 'bg-rose-500/10 border-rose-500/30 shadow-[0_0_30px_-5px_rgba(244,63,94,0.15)]'}`}>
+                  <div className="flex items-center justify-between mb-4 relative z-10">
+                    <div className={`p-2.5 rounded-xl border ${totals.totalRemaining >= 0 ? 'bg-emerald-500/20 border-emerald-500/30' : 'bg-rose-500/20 border-rose-500/30'}`}>
+                      <DollarSign className={`w-5 h-5 ${totals.totalRemaining >= 0 ? 'text-emerald-400' : 'text-rose-400'}`} />
+                    </div>
+                    <h3 className="text-white/80 font-bold text-xs uppercase tracking-widest">Saldo Final</h3>
+                  </div>
+                  <p className={`text-4xl font-extrabold font-mono tracking-tight ${totals.totalRemaining >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                    {formatCurrency(totals.totalRemaining)}
+                  </p>
+                  <div className="mt-4 flex gap-4 text-xs font-bold text-white/50 uppercase tracking-widest">
+                    <span>Sobra Pag: <span className={totals.remainingPagamento >= 0 ? 'text-emerald-400' : 'text-rose-400'}>{formatCurrency(totals.remainingPagamento)}</span></span>
+                    <span>Sobra Vale: <span className={totals.remainingVale >= 0 ? 'text-indigo-400' : 'text-rose-400'}>{formatCurrency(totals.remainingVale)}</span></span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Annual Chart */}
+              <div className="xl:col-span-2 bg-white/5 backdrop-blur-xl p-6 rounded-3xl border border-white/10 shadow-2xl flex flex-col">
+                <h3 className="text-lg font-bold text-white mb-6 flex items-center">
+                  <TrendingUp className="w-5 h-5 mr-3 text-indigo-400" />
+                  Visão Geral do Ano ({currentYear})
+                </h3>
+                <div className="flex-1 w-full min-h-[250px]">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={yearData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
+                      <XAxis dataKey="name" stroke="rgba(255,255,255,0.4)" fontSize={12} tickLine={false} axisLine={false} />
+                      <YAxis stroke="rgba(255,255,255,0.4)" fontSize={12} tickFormatter={(val) => `R$${val/1000}k`} tickLine={false} axisLine={false} />
+                      <Tooltip cursor={{ fill: 'rgba(255,255,255,0.05)' }} contentStyle={{ backgroundColor: '#0f1115', borderColor: 'rgba(255,255,255,0.1)', borderRadius: '16px', color: '#fff' }} itemStyle={{ fontWeight: 'bold' }} />
+                      <Legend iconType="circle" wrapperStyle={{ fontSize: '12px', paddingTop: '10px' }} />
+                      <Bar dataKey="Receitas" fill="#10b981" radius={[4, 4, 0, 0]} maxBarSize={40} />
+                      <Bar dataKey="Despesas" fill="#f43f5e" radius={[4, 4, 0, 0]} maxBarSize={40} />
+                    </BarChart>
+                  </ResponsiveContainer>
                 </div>
               </div>
             </div>
-          </div>
+          )}
+
+          {activeTab !== 'resumo' && (
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+              <div className="lg:col-span-8 order-2 lg:order-1 space-y-8">
+                <ItemList 
+                  title={`Contas Fixas e Variáveis (${activeTab === 'pagamento' ? 'Pagamento' : 'Vale'})`}
+                  icon={TrendingDown}
+                  type={`expense_${activeTab}`}
+                  source={activeTab}
+                  data={items.filter(i => i.type === `expense_${activeTab}`)}
+                  colorClass="text-rose-400"
+                />
+
+                <ItemList 
+                  title={`Faturas de Cartões (${activeTab === 'pagamento' ? 'Pagamento' : 'Vale'})`}
+                  icon={CreditCard}
+                  type={`card_${activeTab}`}
+                  source={activeTab}
+                  data={items.filter(i => i.type === `card_${activeTab}`)}
+                  colorClass="text-indigo-400"
+                />
+              </div>
+
+              <div className="lg:col-span-4 order-1 lg:order-2">
+                <div className="bg-white/5 backdrop-blur-xl rounded-3xl border border-white/10 lg:sticky lg:top-28 shadow-2xl overflow-hidden transition-all">
+                  <div className="p-6 border-b border-white/5 flex justify-between items-center">
+                    <h2 className="text-lg font-bold text-white flex items-center">
+                      <div className="bg-emerald-500/20 p-2 rounded-xl mr-3 border border-emerald-500/30">
+                        <TrendingUp className="w-5 h-5 text-emerald-400" />
+                      </div>
+                      Receitas: {activeTab === 'pagamento' ? 'Pagamento' : 'Vale'}
+                    </h2>
+                    {editingIncome ? (
+                      <button onClick={saveIncome} className="flex items-center space-x-2 text-emerald-400 bg-emerald-500/20 hover:bg-emerald-500/30 px-4 py-2 rounded-xl text-sm font-semibold transition-all">
+                        <Check className="w-4 h-4" /><span>Salvar</span>
+                      </button>
+                    ) : (
+                      <button onClick={() => setEditingIncome(true)} className="flex items-center space-x-2 text-white/50 bg-white/5 hover:text-white hover:bg-white/10 px-4 py-2 rounded-xl text-sm font-semibold transition-all">
+                        <Edit2 className="w-4 h-4" /><span>Editar</span>
+                      </button>
+                    )}
+                  </div>
+                  
+                  <div className="p-6 space-y-5">
+                    {activeTab === 'pagamento' && [
+                      { label: "Pagamento Base", field: "pagamento", show: true },
+                      { label: "Férias", field: "ferias", show: true },
+                      { label: "13º Salário", field: "decimoTerceiro", show: currentMonthIndex === 10 || currentMonthIndex === 11 }, // Only Nov/Dec
+                    ].filter(i => i.show).map((inputMap) => (
+                      <div key={inputMap.field} className={`bg-black/20 p-4 rounded-2xl border transition-colors ${editingIncome ? 'border-white/10 focus-within:border-emerald-500/50' : 'border-transparent'}`}>
+                        <label className="flex items-center justify-between text-[10px] font-bold text-white/40 uppercase tracking-widest mb-3">
+                          {inputMap.label}
+                          {!editingIncome && <Lock className="w-3 h-3 text-white/20" />}
+                        </label>
+                        <div className="relative flex items-center">
+                          <span className="text-white/40 font-medium mr-2">R$</span>
+                          <input 
+                            type="number" 
+                            className={`w-full bg-transparent border-none focus:ring-0 p-0 text-xl text-white font-mono font-semibold outline-none placeholder-white/10 ${!editingIncome && 'opacity-80 cursor-default'}`}
+                            value={income[inputMap.field as keyof typeof income] || ''}
+                            onChange={(e) => updateIncomeLocal(inputMap.field, Number(e.target.value))}
+                            readOnly={!editingIncome}
+                            onWheel={(e) => (e.target as HTMLElement).blur()}
+                            placeholder="0.00"
+                          />
+                        </div>
+                      </div>
+                    ))}
+
+                    {activeTab === 'vale' && (
+                      <div className={`bg-black/20 p-4 rounded-2xl border transition-colors ${editingIncome ? 'border-white/10 focus-within:border-emerald-500/50' : 'border-transparent'}`}>
+                        <label className="flex items-center justify-between text-[10px] font-bold text-white/40 uppercase tracking-widest mb-3">
+                          Vale Alimentação/Refeição
+                          {!editingIncome && <Lock className="w-3 h-3 text-white/20" />}
+                        </label>
+                        <div className="relative flex items-center">
+                          <span className="text-white/40 font-medium mr-2">R$</span>
+                          <input 
+                            type="number" 
+                            className={`w-full bg-transparent border-none focus:ring-0 p-0 text-xl text-white font-mono font-semibold outline-none placeholder-white/10 ${!editingIncome && 'opacity-80 cursor-default'}`}
+                            value={income.vale || ''}
+                            onChange={(e) => updateIncomeLocal('vale', Number(e.target.value))}
+                            readOnly={!editingIncome}
+                            onWheel={(e) => (e.target as HTMLElement).blur()}
+                            placeholder="0.00"
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
         </main>
       )}
 
