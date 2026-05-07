@@ -1,0 +1,6 @@
+{
+  "name": "Zim Finance",
+  "description": "Sistema de controle financeiro mensal baseado em planilha, com separação de Pagamento e Vale.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}
