@@ -1000,6 +1000,7 @@ export default function App() {
                                       <Trash2 className="w-3 h-3" />
                                     </button>
                                    </div>
+                              </div>
 
                               {/* Expandido: lista de despesas individuais */}
                               {isExpanded && (
