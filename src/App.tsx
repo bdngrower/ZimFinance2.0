@@ -821,6 +821,7 @@ export default function App() {
                                 className="w-16 bg-transparent text-xs font-mono text-emerald-400 text-right outline-none"
                                 placeholder="0"
                               />
+                              <div className="flex gap-0.5 shrink-0">
                                 <button onClick={() => toggleRecurring(item)} className={`p-1 rounded transition-all ${item.is_recurring ? 'text-emerald-400 bg-emerald-500/10' : 'text-white/20 hover:text-white opacity-0 group-hover:opacity-100'}`} title="Recorrente">
                                   <Repeat className="w-3 h-3" />
                                 </button>
@@ -882,6 +883,7 @@ export default function App() {
                                 className="w-16 bg-transparent text-xs font-mono text-indigo-400 text-right outline-none"
                                 placeholder="0"
                               />
+                              <div className="flex gap-0.5 shrink-0">
                                 <button onClick={() => toggleRecurring(item)} className={`p-1 rounded transition-all ${item.is_recurring ? 'text-indigo-400 bg-indigo-500/10' : 'text-white/20 hover:text-white opacity-0 group-hover:opacity-100'}`} title="Recorrente">
                                   <Repeat className="w-3 h-3" />
                                 </button>
@@ -997,8 +999,7 @@ export default function App() {
                                     <button onClick={() => removeItem(item.id)} className="p-1 text-white/20 hover:text-rose-400 opacity-0 group-hover:opacity-100 rounded transition-all">
                                       <Trash2 className="w-3 h-3" />
                                     </button>
-                                  </div>
-                              </div>
+                                   </div>
 
                               {/* Expandido: lista de despesas individuais */}
                               {isExpanded && (
