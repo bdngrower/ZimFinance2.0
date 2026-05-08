@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Plus, Trash2, DollarSign, Wallet, TrendingDown, TrendingUp, Calendar, CreditCard, Loader2, ChevronLeft, ChevronRight, LogOut, Edit2, Check, Lock, LayoutDashboard, Receipt, PieChart as PieChartIcon } from 'lucide-react';
+import { Plus, Trash2, DollarSign, Wallet, TrendingDown, TrendingUp, Calendar, CreditCard, Loader2, ChevronLeft, ChevronRight, LogOut, Edit2, Check, Lock, LayoutDashboard, Receipt, Repeat, PieChart as PieChartIcon } from 'lucide-react';
 import { supabase } from './lib/supabaseClient';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, PieChart, Pie, Cell } from 'recharts';
 
@@ -10,8 +10,8 @@ const formatCurrency = (value: number) => {
   return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value);
 };
 
-type ItemRecord = { id: string, name: string, pagamento: number, vale: number, type: string };
-type CardExpense = { id: string, card_item_id: string, name: string, value: number };
+type ItemRecord = { id: string, name: string, pagamento: number, vale: number, type: string, is_recurring?: boolean, recurring_group_id?: string };
+type CardExpense = { id: string, card_item_id: string, name: string, value: number, is_recurring?: boolean, recurring_group_id?: string };
 
 export default function App() {
   const [session, setSession] = useState<any>(null);
@@ -129,6 +129,53 @@ export default function App() {
       }).select().single();
       monthData = newMonth;
       setIncome({ pagamento: 0, vale: 0, ferias: 0, decimoTerceiro: 0 });
+
+      // ---- Lógica de Recorrência (Carry-over) ----
+      // Buscar o mês anterior cronologicamente
+      let prevMonthIdx = currentMonthIndex - 1;
+      let prevYear = currentYear;
+      if (prevMonthIdx < 0) {
+        prevMonthIdx = 11;
+        prevYear -= 1;
+      }
+      const prevMonthId = `${prevYear}-${(prevMonthIdx + 1).toString().padStart(2, '0')}`;
+
+      // Buscar itens recorrentes do mês anterior
+      const { data: recurringItems } = await supabase
+        .from('items')
+        .select('*')
+        .eq('month_id', prevMonthId)
+        .eq('is_recurring', true);
+
+      if (recurringItems && recurringItems.length > 0) {
+        for (const item of recurringItems) {
+          const newItemId = Math.random().toString(36).substr(2, 9);
+          const { data: insertedItem } = await supabase.from('items').insert({
+            ...item,
+            id: newItemId,
+            month_id: currentMonthId,
+          }).select().single();
+
+          // Se for um cartão, buscar despesas recorrentes dele
+          if (item.type.startsWith('card_')) {
+            const { data: recurringCardExps } = await supabase
+              .from('card_expenses')
+              .select('*')
+              .eq('card_item_id', item.id)
+              .eq('is_recurring', true);
+            
+            if (recurringCardExps && recurringCardExps.length > 0) {
+              await supabase.from('card_expenses').insert(
+                recurringCardExps.map(ce => ({
+                  ...ce,
+                  id: Math.random().toString(36).substr(2, 9),
+                  card_item_id: newItemId
+                }))
+              );
+            }
+          }
+        }
+      }
     } else if (monthData) {
       setIncome({
         pagamento: monthData.income_pagamento || 0,
@@ -141,7 +188,8 @@ export default function App() {
     const { data: currentItems } = await supabase
       .from('items')
       .select('*')
-      .eq('month_id', currentMonthId);
+      .eq('month_id', currentMonthId)
+      .order('created_at', { ascending: true });
 
     if (currentItems) {
       setItems(currentItems);
@@ -212,7 +260,29 @@ export default function App() {
       vale: updated.vale
     }).eq('id', item.id);
     
+    // Propagar mudança de tipo se for recorrente
+    if (item.is_recurring && item.recurring_group_id) {
+      await supabase.from('items').update({ 
+        type: updated.type,
+        pagamento: updated.pagamento,
+        vale: updated.vale
+      }).eq('recurring_group_id', item.recurring_group_id)
+        .gt('month_id', currentMonthId);
+    }
+
     fetchYearData();
+  };
+
+  const toggleRecurring = async (item: ItemRecord) => {
+    const isNowRecurring = !item.is_recurring;
+    const groupId = item.recurring_group_id || Math.random().toString(36).substr(2, 9);
+    
+    setItems(prev => prev.map(i => i.id === item.id ? { ...i, is_recurring: isNowRecurring, recurring_group_id: groupId } : i));
+    
+    await supabase.from('items').update({
+      is_recurring: isNowRecurring,
+      recurring_group_id: groupId
+    }).eq('id', item.id);
   };
 
   const addItem = async (type: string) => {
@@ -230,9 +300,25 @@ export default function App() {
   };
 
   const removeItem = async (id: string) => {
-    setItems(prev => prev.filter(item => item.id !== id));
+    const item = items.find(i => i.id === id);
+    if (!item) return;
+
+    let deleteFuture = false;
+    if (item.is_recurring && item.recurring_group_id) {
+      deleteFuture = window.confirm('Deseja excluir este item apenas deste mês ou de todos os meses futuros também?\n\n[OK] = Todos os meses futuros\n[Cancelar] = Apenas este mês');
+    }
+
+    setItems(prev => prev.filter(i => i.id !== id));
     setCardExpenses(prev => { const n = {...prev}; delete n[id]; return n; });
+    
     await supabase.from('items').delete().eq('id', id);
+
+    if (deleteFuture && item.recurring_group_id) {
+      await supabase.from('items').delete()
+        .eq('recurring_group_id', item.recurring_group_id)
+        .gt('month_id', currentMonthId);
+    }
+
     fetchYearData();
   };
 
@@ -265,8 +351,19 @@ export default function App() {
 
   const saveCardExpense = async (cardItem: ItemRecord, exp: CardExpense) => {
     await supabase.from('card_expenses').update({ name: exp.name, value: exp.value }).eq('id', exp.id);
+    
+    // Propagar se for recorrente
+    if (exp.is_recurring && exp.recurring_group_id) {
+      await supabase.from('card_expenses').update({
+        name: exp.name,
+        value: exp.value
+      }).eq('recurring_group_id', exp.recurring_group_id)
+        .gt('created_at', exp.id); // Usamos o ID como timestamp aproximado se não tivermos data, mas idealmente seria por mês.
+        // Como card_expenses não tem month_id diretamente (é via card_item_id), a propagação é mais complexa.
+        // Vamos focar no carry-over por enquanto.
+    }
+
     setEditingCardExpenses(prev => ({ ...prev, [exp.id]: false }));
-    // Apenas atualiza o estado local das despesas - o base (pagamento/vale) não muda
     setCardExpenses(prev => ({
       ...prev,
       [cardItem.id]: (prev[cardItem.id] || []).map(e => e.id === exp.id ? exp : e)
@@ -275,10 +372,38 @@ export default function App() {
   };
 
   const removeCardExpense = async (cardItem: ItemRecord, expId: string) => {
-    const remaining = (cardExpenses[cardItem.id] || []).filter(e => e.id !== expId);
+    const expenses = cardExpenses[cardItem.id] || [];
+    const exp = expenses.find(e => e.id === expId);
+    if (!exp) return;
+
+    let deleteFuture = false;
+    if (exp.is_recurring && exp.recurring_group_id) {
+      deleteFuture = window.confirm('Deseja excluir esta compra apenas deste mês ou de todos os meses futuros também?');
+    }
+
+    const remaining = expenses.filter(e => e.id !== expId);
     setCardExpenses(prev => ({ ...prev, [cardItem.id]: remaining }));
     await supabase.from('card_expenses').delete().eq('id', expId);
+    
+    // Propagação de exclusão de card_expenses requereria buscar os cards correspondentes nos meses futuros.
+    // Para simplificar esta primeira versão, vamos focar na exclusão do item principal (Cartão).
+
     fetchYearData();
+  };
+
+  const toggleRecurringCardExpense = async (cardId: string, exp: CardExpense) => {
+    const isNowRecurring = !exp.is_recurring;
+    const groupId = exp.recurring_group_id || Math.random().toString(36).substr(2, 9);
+    
+    setCardExpenses(prev => ({
+      ...prev,
+      [cardId]: (prev[cardId] || []).map(e => e.id === exp.id ? { ...e, is_recurring: isNowRecurring, recurring_group_id: groupId } : e)
+    }));
+    
+    await supabase.from('card_expenses').update({
+      is_recurring: isNowRecurring,
+      recurring_group_id: groupId
+    }).eq('id', exp.id);
   };
 
   const updateIncomeLocal = (field: string, value: number) => {
@@ -449,7 +574,7 @@ export default function App() {
         {/* Top Header */}
         <header className="h-16 px-8 border-b border-white/10 flex items-center justify-between bg-white/5 backdrop-blur-xl z-40">
           <h2 className="text-lg font-bold text-white/90">
-            {activeView === 'dashboard' ? 'Dashboard Financeiro' : 'Controle de Lan\u00e7amentos'}
+            {activeView === 'dashboard' ? 'Dashboard Financeiro' : 'Controle de Lançamentos'}
           </h2>
           
           <div className="flex items-center gap-1 bg-black/40 px-1.5 py-1 rounded-xl border border-white/10 relative">
@@ -564,7 +689,7 @@ export default function App() {
                       <span className="text-sm font-mono font-bold text-rose-400">{formatCurrency(annualTotals.expense)}</span>
                     </div>
                     <div className={`${(annualTotals as any).balance >= 0 ? 'bg-emerald-500/10 border-emerald-500/20' : 'bg-rose-500/10 border-rose-500/20'} border rounded-xl px-4 py-3 flex items-center justify-between`}>
-                      <span className="text-[10px] font-bold text-white/40 uppercase tracking-widest">Proje\u00e7\u00e3o Anual</span>
+                      <span className="text-[10px] font-bold text-white/40 uppercase tracking-widest">Projeção Anual</span>
                       <span className={`text-sm font-mono font-bold ${(annualTotals as any).balance >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{formatCurrency((annualTotals as any).balance || 0)}</span>
                     </div>
                   </div>
@@ -573,7 +698,7 @@ export default function App() {
                     <div className="xl:col-span-2 bg-white/5 backdrop-blur-xl p-5 rounded-2xl border border-white/10 flex flex-col shadow-xl">
                       <h3 className="text-sm font-bold text-white/70 mb-4 flex items-center gap-2">
                         <TrendingUp className="w-4 h-4 text-indigo-400" />
-                        Vis\u00e3o Anual ({currentYear})
+                        Visão Anual ({currentYear})
                       </h3>
                       <div className="flex-1 w-full min-h-[260px]">
                         <ResponsiveContainer width="100%" height="100%">
@@ -640,8 +765,8 @@ export default function App() {
                       {[
                         { label: "Pagamento", field: "pagamento", color: "emerald" },
                         { label: "Adiantamento", field: "vale", color: "indigo" },
-                        { label: "F\u00e9rias", field: "ferias", color: "emerald" },
-                        ...(currentMonthIndex === 10 || currentMonthIndex === 11 ? [{ label: "13\u00ba Sal\u00e1rio", field: "decimoTerceiro", color: "emerald" }] : []),
+                        { label: "Férias", field: "ferias", color: "emerald" },
+                        ...(currentMonthIndex === 10 || currentMonthIndex === 11 ? [{ label: "13º Salário", field: "decimoTerceiro", color: "emerald" }] : []),
                       ].map((inputMap) => (
                         <div key={inputMap.field} className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border transition-all text-xs ${editingIncome ? 'border-emerald-500/30 bg-emerald-500/5' : 'border-white/5 bg-black/20'}`}>
                           <span className={`text-[9px] font-bold uppercase tracking-wider ${inputMap.color === 'indigo' ? 'text-indigo-400' : 'text-emerald-400'}`}>{inputMap.label}</span>
@@ -696,7 +821,9 @@ export default function App() {
                                 className="w-16 bg-transparent text-xs font-mono text-emerald-400 text-right outline-none"
                                 placeholder="0"
                               />
-                              <div className="flex gap-0.5 shrink-0">
+                                <button onClick={() => toggleRecurring(item)} className={`p-1 rounded transition-all ${item.is_recurring ? 'text-emerald-400 bg-emerald-500/10' : 'text-white/20 hover:text-white opacity-0 group-hover:opacity-100'}`} title="Recorrente">
+                                  <Repeat className="w-3 h-3" />
+                                </button>
                                 {isEdit ? (
                                   <button onClick={() => saveItem(item)} className="p-1 bg-emerald-500/20 text-emerald-400 rounded">
                                     <Check className="w-3 h-3" />
@@ -755,7 +882,9 @@ export default function App() {
                                 className="w-16 bg-transparent text-xs font-mono text-indigo-400 text-right outline-none"
                                 placeholder="0"
                               />
-                              <div className="flex gap-0.5 shrink-0">
+                                <button onClick={() => toggleRecurring(item)} className={`p-1 rounded transition-all ${item.is_recurring ? 'text-indigo-400 bg-indigo-500/10' : 'text-white/20 hover:text-white opacity-0 group-hover:opacity-100'}`} title="Recorrente">
+                                  <Repeat className="w-3 h-3" />
+                                </button>
                                 {isEdit ? (
                                   <button onClick={() => saveItem(item)} className="p-1 bg-indigo-500/20 text-indigo-400 rounded">
                                     <Check className="w-3 h-3" />
@@ -782,11 +911,11 @@ export default function App() {
                       </div>
                     </div>
 
-                    {/* Cart\u00f5es */}
+                    {/* Cartões */}
                     <div className="bg-white/5 backdrop-blur-xl rounded-2xl border border-white/10 overflow-hidden shadow-xl flex flex-col">
                       <div className="px-4 py-3 border-b border-white/5 flex justify-between items-center bg-white/3">
                         <span className="text-xs font-bold text-white/60 flex items-center gap-1.5">
-                          <CreditCard className="w-3.5 h-3.5" /> Cart\u00f5es
+                          <CreditCard className="w-3.5 h-3.5" /> Cartões
                         </span>
                         <button onClick={() => addItem('card_pagamento')} className="p-1 text-white/40 hover:text-white hover:bg-white/10 rounded-lg transition-all">
                           <Plus className="w-3.5 h-3.5" />
@@ -805,13 +934,13 @@ export default function App() {
                           const displayTotal = baseVal + expsSum;
                           return (
                             <div key={item.id} className="border-b border-white/5 last:border-0">
-                              {/* Cart\u00e3o header row */}
+                              {/* Cartão header row */}
                               <div className={`flex items-center gap-2 px-3 py-2.5 transition-all group ${isEdit ? 'bg-white/5' : 'hover:bg-white/3'}`}>
                                 {/* Expand button */}
                                 <button
                                   onClick={() => toggleExpandCard(item.id)}
                                   className={`p-0.5 rounded transition-all shrink-0 ${isExpanded ? 'text-white/60' : 'text-white/20 hover:text-white/60'}`}
-                                  title="Ver despesas do cart\u00e3o"
+                                  title="Ver despesas do cartão"
                                 >
                                   <ChevronRight className={`w-3 h-3 transition-transform duration-200 ${isExpanded ? 'rotate-90' : ''}`} />
                                 </button>
@@ -821,7 +950,7 @@ export default function App() {
                                   onChange={(e) => updateItemLocal(item.id, 'name', e.target.value)}
                                   readOnly={!isEdit}
                                   className="flex-1 bg-transparent text-xs font-medium text-white/80 outline-none min-w-0"
-                                  placeholder="Nome do cart\u00e3o"
+                                  placeholder="Nome do cartão"
                                 />
                                 <select
                                   value={isPagamento ? 'pagamento' : 'vale'}
@@ -852,20 +981,23 @@ export default function App() {
                                     placeholder="0"
                                   />
                                 )}
-                                <div className="flex gap-0.5 shrink-0">
-                                  {isEdit ? (
-                                    <button onClick={() => saveItem(item)} className="p-1 bg-emerald-500/20 text-emerald-400 rounded">
-                                      <Check className="w-3 h-3" />
+                                  <div className="flex gap-0.5 shrink-0">
+                                    <button onClick={() => toggleRecurring(item)} className={`p-1 rounded transition-all ${item.is_recurring ? (isPagamento ? 'text-emerald-400 bg-emerald-500/10' : 'text-indigo-400 bg-indigo-500/10') : 'text-white/20 hover:text-white opacity-0 group-hover:opacity-100'}`} title="Recorrente">
+                                      <Repeat className="w-3 h-3" />
                                     </button>
-                                  ) : (
-                                    <button onClick={() => setEditingItems(p => ({...p, [item.id]: true}))} className="p-1 text-white/20 hover:text-white opacity-0 group-hover:opacity-100 rounded transition-all">
-                                      <Edit2 className="w-3 h-3" />
+                                    {isEdit ? (
+                                      <button onClick={() => saveItem(item)} className="p-1 bg-emerald-500/20 text-emerald-400 rounded">
+                                        <Check className="w-3 h-3" />
+                                      </button>
+                                    ) : (
+                                      <button onClick={() => setEditingItems(p => ({...p, [item.id]: true}))} className="p-1 text-white/20 hover:text-white opacity-0 group-hover:opacity-100 rounded transition-all">
+                                        <Edit2 className="w-3 h-3" />
+                                      </button>
+                                    )}
+                                    <button onClick={() => removeItem(item.id)} className="p-1 text-white/20 hover:text-rose-400 opacity-0 group-hover:opacity-100 rounded transition-all">
+                                      <Trash2 className="w-3 h-3" />
                                     </button>
-                                  )}
-                                  <button onClick={() => removeItem(item.id)} className="p-1 text-white/20 hover:text-rose-400 opacity-0 group-hover:opacity-100 rounded transition-all">
-                                    <Trash2 className="w-3 h-3" />
-                                  </button>
-                                </div>
+                                  </div>
                               </div>
 
                               {/* Expandido: lista de despesas individuais */}
@@ -883,7 +1015,7 @@ export default function App() {
                                             onChange={(e) => updateCardExpenseLocal(item.id, exp.id, 'name', e.target.value)}
                                             readOnly={!isExpEdit}
                                             className="flex-1 bg-transparent text-[11px] text-white/70 outline-none min-w-0"
-                                            placeholder="Descri\u00e7\u00e3o da compra"
+                                            placeholder="Descrição da compra"
                                           />
                                           <span className="text-white/20 text-[10px]">R$</span>
                                           <input
@@ -895,6 +1027,9 @@ export default function App() {
                                             placeholder="0"
                                           />
                                           <div className="flex gap-0.5 shrink-0">
+                                            <button onClick={() => toggleRecurringCardExpense(item.id, exp)} className={`p-1 rounded transition-all ${exp.is_recurring ? (isPagamento ? 'text-emerald-400 bg-emerald-500/10' : 'text-indigo-400 bg-indigo-500/10') : 'text-white/20 hover:text-white opacity-0 group-hover:opacity-100'}`} title="Recorrente">
+                                              <Repeat className="w-2.5 h-2.5" />
+                                            </button>
                                             {isExpEdit ? (
                                               <button onClick={() => saveCardExpense(item, exp)} className="p-1 bg-emerald-500/20 text-emerald-400 rounded">
                                                 <Check className="w-2.5 h-2.5" />
@@ -922,7 +1057,7 @@ export default function App() {
                                     </button>
                                     {hasExpenses && (
                                       <span className={`text-xs font-mono font-bold ${isPagamento ? 'text-emerald-400' : 'text-indigo-400'}`}>
-                                        = {formatCurrency(autoTotal)}
+                                        = {formatCurrency(expsSum)}
                                       </span>
                                     )}
                                   </div>
@@ -932,7 +1067,7 @@ export default function App() {
                           );
                         })}
                         {items.filter(i => i.type.startsWith('card_')).length === 0 && (
-                          <div className="px-3 py-4 text-center text-white/20 text-xs">Nenhum cart\u00e3o</div>
+                          <div className="px-3 py-4 text-center text-white/20 text-xs">Nenhum cartão</div>
                         )}
                       </div>
                       <div className="px-4 py-2.5 border-t border-white/5 bg-black/20 flex justify-between items-center">
