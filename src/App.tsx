@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Plus, Trash2, DollarSign, Wallet, TrendingDown, TrendingUp, Calendar, CreditCard, Loader2, ChevronLeft, ChevronRight, LogOut, Edit2, Check, Lock, LayoutDashboard, Receipt, Repeat, PieChart as PieChartIcon } from 'lucide-react';
+import { Plus, Trash2, DollarSign, Wallet, TrendingDown, TrendingUp, Calendar, CreditCard, Loader2, ChevronLeft, ChevronRight, LogOut, Edit2, Check, Lock, LayoutDashboard, Receipt, Repeat, Menu, X, PieChart as PieChartIcon } from 'lucide-react';
 import { supabase } from './lib/supabaseClient';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, PieChart, Pie, Cell } from 'recharts';
 
@@ -43,6 +43,7 @@ export default function App() {
   const [yearData, setYearData] = useState<any[]>([]);
   const [annualTotals, setAnnualTotals] = useState({ income: 0, expense: 0 });
   const [showMonthPicker, setShowMonthPicker] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const currentMonthId = `${currentYear}-${String(currentMonthIndex + 1).padStart(2, '0')}`;
 
@@ -527,25 +528,35 @@ export default function App() {
 
   return (
     <div className="flex h-screen bg-[#0f1115] text-white font-sans overflow-hidden selection:bg-emerald-500/30">
-      {/* Sidebar */}
-      <aside className="w-64 bg-[#0f1115]/90 backdrop-blur-2xl border-r border-white/10 flex flex-col z-50">
-        <div className="h-24 flex items-center px-8 border-b border-white/5">
-          <img src="/Logo.png" alt="Logo" className="w-10 h-10 object-contain mr-3" />
-          <h1 className="text-xl font-extrabold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-white to-white/60">
-            ZimFinance
-          </h1>
+      {/* Mobile Sidebar Overlay */}
+      {sidebarOpen && (
+        <div className="fixed inset-0 bg-black/60 z-[60] lg:hidden" onClick={() => setSidebarOpen(false)} />
+      )}
+
+      {/* Sidebar - hidden on mobile, slide-in when open */}
+      <aside className={`fixed lg:relative w-64 bg-[#0f1115]/95 backdrop-blur-2xl border-r border-white/10 flex flex-col z-[70] h-full transition-transform duration-300 ease-in-out ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'} lg:translate-x-0`}>
+        <div className="h-16 lg:h-24 flex items-center justify-between px-6 lg:px-8 border-b border-white/5">
+          <div className="flex items-center">
+            <img src="/Logo.png" alt="Logo" className="w-8 h-8 lg:w-10 lg:h-10 object-contain mr-3" />
+            <h1 className="text-lg lg:text-xl font-extrabold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-white to-white/60">
+              ZimFinance
+            </h1>
+          </div>
+          <button onClick={() => setSidebarOpen(false)} className="p-1.5 text-white/40 hover:text-white lg:hidden rounded-lg">
+            <X className="w-5 h-5" />
+          </button>
         </div>
         
-        <nav className="flex-1 px-4 py-8 space-y-2">
+        <nav className="flex-1 px-4 py-6 lg:py-8 space-y-2">
           <button 
-            onClick={() => setActiveView('dashboard')}
+            onClick={() => { setActiveView('dashboard'); setSidebarOpen(false); }}
             className={`w-full flex items-center px-4 py-3.5 rounded-2xl font-bold transition-all ${activeView === 'dashboard' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'text-white/50 hover:text-white hover:bg-white/5 border border-transparent'}`}
           >
             <LayoutDashboard className="w-5 h-5 mr-3" />
             Dashboard
           </button>
           <button 
-            onClick={() => setActiveView('lancamentos')}
+            onClick={() => { setActiveView('lancamentos'); setSidebarOpen(false); }}
             className={`w-full flex items-center px-4 py-3.5 rounded-2xl font-bold transition-all ${activeView === 'lancamentos' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'text-white/50 hover:text-white hover:bg-white/5 border border-transparent'}`}
           >
             <Receipt className="w-5 h-5 mr-3" />
@@ -572,10 +583,15 @@ export default function App() {
         <div className="fixed bottom-[10%] right-[-10%] w-[40%] h-[40%] rounded-full bg-indigo-600/20 blur-[120px] pointer-events-none" />
 
         {/* Top Header */}
-        <header className="h-16 px-8 border-b border-white/10 flex items-center justify-between bg-white/5 backdrop-blur-xl z-40">
-          <h2 className="text-lg font-bold text-white/90">
-            {activeView === 'dashboard' ? 'Dashboard Financeiro' : 'Controle de Lançamentos'}
-          </h2>
+        <header className="h-14 lg:h-16 px-3 lg:px-8 border-b border-white/10 flex items-center justify-between bg-white/5 backdrop-blur-xl z-40">
+          <div className="flex items-center gap-2">
+            <button onClick={() => setSidebarOpen(true)} className="p-2 text-white/50 hover:text-white hover:bg-white/10 rounded-xl transition-all lg:hidden">
+              <Menu className="w-5 h-5" />
+            </button>
+            <h2 className="text-sm lg:text-lg font-bold text-white/90 truncate">
+              {activeView === 'dashboard' ? 'Dashboard' : 'Lançamentos'}
+            </h2>
+          </div>
           
           <div className="flex items-center gap-1 bg-black/40 px-1.5 py-1 rounded-xl border border-white/10 relative">
             <button onClick={() => setCurrentYear(y => y - 1)} className="p-1.5 text-white/40 hover:text-white hover:bg-white/10 rounded-lg transition-colors"><ChevronLeft className="w-3.5 h-3.5"/></button>
@@ -635,7 +651,7 @@ export default function App() {
           </div>
         </header>
 
-        <div className="flex-1 overflow-y-auto p-6 relative z-10 custom-scrollbar">
+        <div className="flex-1 overflow-y-auto p-3 lg:p-6 pb-20 lg:pb-6 relative z-10 custom-scrollbar">
           {loading ? (
             <div className="flex flex-col items-center justify-center h-full">
               <Loader2 className="w-8 h-8 animate-spin text-emerald-500" />
@@ -644,7 +660,7 @@ export default function App() {
             <div className="space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-500 max-w-[1600px] mx-auto">
               
               {/* Top Monthly Stats - Compact */}
-              <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+              <div className="grid grid-cols-2 lg:grid-cols-5 gap-2 lg:gap-3">
                 {[
                   { label: 'Receita Mensal', value: totals.totalIncome, icon: TrendingUp, color: 'emerald', sub: null },
                   { label: 'Gastos Mensal', value: totals.totalExpenses, icon: TrendingDown, color: 'rose', sub: null },
@@ -661,14 +677,14 @@ export default function App() {
                   const colors = colorMap[card.color] || colorMap.emerald;
                   const textColor = card.color === 'rose' ? 'text-rose-400' : card.color === 'indigo' ? 'text-indigo-400' : 'text-emerald-400';
                   return (
-                    <div key={idx} className={`${idx === 4 ? 'col-span-2 lg:col-span-1' : ''} bg-white/5 backdrop-blur-xl rounded-2xl border border-white/10 p-4 hover:border-white/20 transition-all group`}>
+                    <div key={idx} className={`${idx === 4 ? 'col-span-2 lg:col-span-1' : ''} bg-white/5 backdrop-blur-xl rounded-xl lg:rounded-2xl border border-white/10 p-3 lg:p-4 hover:border-white/20 transition-all group`}>
                       <div className="flex items-center justify-between mb-2">
                         <span className="text-[10px] font-bold text-white/40 uppercase tracking-widest">{card.label}</span>
                         <div className={`p-1.5 rounded-lg border ${colors}`}>
                           <Icon className="w-3 h-3" />
                         </div>
                       </div>
-                      <p className={`text-xl font-extrabold font-mono tracking-tight ${textColor}`}>{formatCurrency(card.value)}</p>
+                      <p className={`text-base lg:text-xl font-extrabold font-mono tracking-tight ${textColor}`}>{formatCurrency(card.value)}</p>
                       {card.sub && <p className="text-[10px] text-white/30 font-mono mt-1">{card.sub}</p>}
                     </div>
                   );
@@ -679,18 +695,18 @@ export default function App() {
                 /* Annual Stats & Charts */
                 <div className="space-y-4">
                   {/* Annual summary strip */}
-                  <div className="grid grid-cols-3 gap-3">
-                    <div className="bg-emerald-500/5 border border-emerald-500/15 rounded-xl px-4 py-3 flex items-center justify-between">
-                      <span className="text-[10px] font-bold text-white/40 uppercase tracking-widest">Receita Anual</span>
-                      <span className="text-sm font-mono font-bold text-emerald-400">{formatCurrency(annualTotals.income)}</span>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 lg:gap-3">
+                    <div className="bg-emerald-500/5 border border-emerald-500/15 rounded-xl px-3 lg:px-4 py-2.5 lg:py-3 flex items-center justify-between">
+                      <span className="text-[9px] lg:text-[10px] font-bold text-white/40 uppercase tracking-widest">Receita Anual</span>
+                      <span className="text-xs lg:text-sm font-mono font-bold text-emerald-400">{formatCurrency(annualTotals.income)}</span>
                     </div>
-                    <div className="bg-rose-500/5 border border-rose-500/15 rounded-xl px-4 py-3 flex items-center justify-between">
-                      <span className="text-[10px] font-bold text-white/40 uppercase tracking-widest">Gasto Anual</span>
-                      <span className="text-sm font-mono font-bold text-rose-400">{formatCurrency(annualTotals.expense)}</span>
+                    <div className="bg-rose-500/5 border border-rose-500/15 rounded-xl px-3 lg:px-4 py-2.5 lg:py-3 flex items-center justify-between">
+                      <span className="text-[9px] lg:text-[10px] font-bold text-white/40 uppercase tracking-widest">Gasto Anual</span>
+                      <span className="text-xs lg:text-sm font-mono font-bold text-rose-400">{formatCurrency(annualTotals.expense)}</span>
                     </div>
-                    <div className={`${(annualTotals as any).balance >= 0 ? 'bg-emerald-500/10 border-emerald-500/20' : 'bg-rose-500/10 border-rose-500/20'} border rounded-xl px-4 py-3 flex items-center justify-between`}>
-                      <span className="text-[10px] font-bold text-white/40 uppercase tracking-widest">Projeção Anual</span>
-                      <span className={`text-sm font-mono font-bold ${(annualTotals as any).balance >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{formatCurrency((annualTotals as any).balance || 0)}</span>
+                    <div className={`${(annualTotals as any).balance >= 0 ? 'bg-emerald-500/10 border-emerald-500/20' : 'bg-rose-500/10 border-rose-500/20'} border rounded-xl px-3 lg:px-4 py-2.5 lg:py-3 flex items-center justify-between`}>
+                      <span className="text-[9px] lg:text-[10px] font-bold text-white/40 uppercase tracking-widest">Projeção Anual</span>
+                      <span className={`text-xs lg:text-sm font-mono font-bold ${(annualTotals as any).balance >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{formatCurrency((annualTotals as any).balance || 0)}</span>
                     </div>
                   </div>
 
@@ -1085,6 +1101,33 @@ export default function App() {
           )}
         </div>
       </main>
+
+      {/* Mobile Bottom Navigation */}
+      <nav className="fixed bottom-0 left-0 right-0 lg:hidden z-50 bg-[#0f1115]/95 backdrop-blur-2xl border-t border-white/10">
+        <div className="flex items-center justify-around h-14">
+          <button
+            onClick={() => setActiveView('dashboard')}
+            className={`flex flex-col items-center justify-center flex-1 h-full transition-all ${activeView === 'dashboard' ? 'text-emerald-400' : 'text-white/40'}`}
+          >
+            <LayoutDashboard className="w-5 h-5" />
+            <span className="text-[10px] font-bold mt-0.5">Dashboard</span>
+          </button>
+          <button
+            onClick={() => setActiveView('lancamentos')}
+            className={`flex flex-col items-center justify-center flex-1 h-full transition-all ${activeView === 'lancamentos' ? 'text-emerald-400' : 'text-white/40'}`}
+          >
+            <Receipt className="w-5 h-5" />
+            <span className="text-[10px] font-bold mt-0.5">Lançamentos</span>
+          </button>
+          <button
+            onClick={handleLogout}
+            className="flex flex-col items-center justify-center flex-1 h-full text-white/40 hover:text-rose-400 transition-all"
+          >
+            <LogOut className="w-5 h-5" />
+            <span className="text-[10px] font-bold mt-0.5">Sair</span>
+          </button>
+        </div>
+      </nav>
     </div>
   );
 }
