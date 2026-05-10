@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Plus, Trash2, DollarSign, Wallet, TrendingDown, TrendingUp, Calendar, CreditCard, Loader2, ChevronLeft, ChevronRight, LogOut, Edit2, Check, Lock, LayoutDashboard, Receipt, Repeat, Menu, X, PieChart as PieChartIcon } from 'lucide-react';
+import { Plus, Trash2, DollarSign, Wallet, TrendingDown, TrendingUp, Calendar, CreditCard, Loader2, ChevronLeft, ChevronRight, LogOut, Edit2, Check, Lock, LayoutDashboard, Receipt, Repeat, Menu, X, PieChart as PieChartIcon, Bell, Share2, Settings, Users, UserPlus, CheckCircle, XCircle, Shield } from 'lucide-react';
 import { supabase } from './lib/supabaseClient';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, PieChart, Pie, Cell } from 'recharts';
 
@@ -12,6 +12,8 @@ const formatCurrency = (value: number) => {
 
 type ItemRecord = { id: string, name: string, pagamento: number, vale: number, type: string, is_recurring?: boolean, recurring_group_id?: string };
 type CardExpense = { id: string, card_item_id: string, name: string, value: number, is_recurring?: boolean, recurring_group_id?: string };
+type UserProfile = { id: string, email: string, display_name: string | null, role: 'admin' | 'user', created_at: string };
+type ExpenseShare = { id: string, from_user_id: string, to_user_id: string, from_user_email: string, expense_name: string, expense_value: number, share_value: number, expense_type: string, source_item_id: string | null, source_month_id: string, status: 'pending' | 'accepted' | 'rejected', created_at: string };
 
 export default function App() {
   const [session, setSession] = useState<any>(null);
@@ -29,7 +31,7 @@ export default function App() {
   
   const [loading, setLoading] = useState(true);
   
-  const [activeView, setActiveView] = useState<'dashboard' | 'lancamentos'>('dashboard');
+
 
   const [income, setIncome] = useState({ pagamento: 0, vale: 0, ferias: 0, decimoTerceiro: 0 });
   const [items, setItems] = useState<ItemRecord[]>([]);
@@ -44,6 +46,24 @@ export default function App() {
   const [annualTotals, setAnnualTotals] = useState({ income: 0, expense: 0 });
   const [showMonthPicker, setShowMonthPicker] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  // Admin & Compartilhamento
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
+  const [activeView, setActiveView] = useState<'dashboard' | 'lancamentos' | 'settings'>('dashboard');
+  const [notifications, setNotifications] = useState<ExpenseShare[]>([]);
+  const [showNotifications, setShowNotifications] = useState(false);
+  const [sentShares, setSentShares] = useState<ExpenseShare[]>([]);
+  const [adminUsers, setAdminUsers] = useState<UserProfile[]>([]);
+  const [adminLoading, setAdminLoading] = useState(false);
+  const [newUserEmail, setNewUserEmail] = useState('');
+  const [newUserName, setNewUserName] = useState('');
+  const [newUserPassword, setNewUserPassword] = useState('');
+  const [adminMsg, setAdminMsg] = useState<{type:'success'|'error', text:string} | null>(null);
+  const [shareModal, setShareModal] = useState<{item: ItemRecord, isCardExp?: boolean} | null>(null);
+  const [shareEmail, setShareEmail] = useState('');
+  const [shareValue, setShareValue] = useState('');
+  const [shareLoading, setShareLoading] = useState(false);
+  const [shareMsg, setShareMsg] = useState<{type:'success'|'error', text:string} | null>(null);
 
   const currentMonthId = `${currentYear}-${String(currentMonthIndex + 1).padStart(2, '0')}`;
 
@@ -64,8 +84,123 @@ export default function App() {
     if (session?.user?.id) {
       fetchData();
       fetchYearData();
+      loadUserProfile();
+      loadNotifications();
+      const interval = setInterval(loadNotifications, 30000);
+      return () => clearInterval(interval);
     }
   }, [currentMonthId, session?.user?.id]);
+
+  const loadUserProfile = async () => {
+    const { data } = await supabase.from('profiles').select('*').eq('id', session?.user?.id).single();
+    if (data) setUserProfile(data as UserProfile);
+  };
+
+  const loadNotifications = async () => {
+    if (!session?.user?.id) return;
+    const { data } = await supabase
+      .from('expense_shares')
+      .select('*')
+      .eq('to_user_id', session.user.id)
+      .eq('status', 'pending')
+      .order('created_at', { ascending: false });
+    if (data) setNotifications(data as ExpenseShare[]);
+
+    // Também carregar shares enviados pelo usuário (para indicador visual nos itens)
+    const { data: sent } = await supabase
+      .from('expense_shares')
+      .select('*')
+      .eq('from_user_id', session.user.id)
+      .eq('source_month_id', currentMonthId);
+    if (sent) setSentShares(sent as ExpenseShare[]);
+  };
+
+  const loadAdminUsers = async () => {
+    setAdminLoading(true);
+    const { data } = await supabase.from('profiles').select('*').order('created_at', { ascending: true });
+    if (data) setAdminUsers(data as UserProfile[]);
+    setAdminLoading(false);
+  };
+
+  const createAdminUser = async () => {
+    if (!newUserEmail || !newUserPassword) { setAdminMsg({ type: 'error', text: 'Preencha e-mail e senha.' }); return; }
+    setAdminLoading(true);
+    setAdminMsg(null);
+    try {
+      const { data: { session: s } } = await supabase.auth.getSession();
+      const resp = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/admin-create-user`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${s?.access_token}` },
+        body: JSON.stringify({ email: newUserEmail, password: newUserPassword, display_name: newUserName })
+      });
+      const json = await resp.json();
+      if (!resp.ok) throw new Error(json.error || 'Erro ao criar usuário');
+      setAdminMsg({ type: 'success', text: `Usuário ${newUserEmail} criado com sucesso!` });
+      setNewUserEmail(''); setNewUserName(''); setNewUserPassword('');
+      await loadAdminUsers();
+    } catch (err: any) {
+      setAdminMsg({ type: 'error', text: err.message });
+    }
+    setAdminLoading(false);
+  };
+
+  const sendExpenseShare = async () => {
+    if (!shareModal || !shareEmail || !shareValue) { setShareMsg({ type: 'error', text: 'Preencha o e-mail e o valor.' }); return; }
+    setShareLoading(true);
+    setShareMsg(null);
+    // Buscar o usuário pelo e-mail
+    const { data: targetProfile } = await supabase.from('profiles').select('id, email').eq('email', shareEmail.toLowerCase().trim()).single();
+    if (!targetProfile) { setShareMsg({ type: 'error', text: 'Usuário não encontrado no sistema.' }); setShareLoading(false); return; }
+    if (targetProfile.id === session?.user?.id) { setShareMsg({ type: 'error', text: 'Você não pode compartilhar consigo mesmo.' }); setShareLoading(false); return; }
+
+    const item = shareModal.item;
+    const totalValue = (Number(item.pagamento) || 0) + (Number(item.vale) || 0);
+    const sv = Number(shareValue);
+
+    const { error } = await supabase.from('expense_shares').insert({
+      id: Math.random().toString(36).substr(2, 9),
+      from_user_id: session?.user?.id,
+      to_user_id: targetProfile.id,
+      from_user_email: session?.user?.email,
+      expense_name: item.name || 'Despesa sem nome',
+      expense_value: totalValue,
+      share_value: sv,
+      expense_type: item.type,
+      source_item_id: item.id,
+      source_month_id: currentMonthId,
+    });
+    if (error) { setShareMsg({ type: 'error', text: 'Erro ao compartilhar. Tente novamente.' }); }
+    else { setShareMsg({ type: 'success', text: `Convite enviado para ${shareEmail}!` }); await loadNotifications(); }
+    setShareLoading(false);
+  };
+
+  const respondToShare = async (share: ExpenseShare, accept: boolean) => {
+    await supabase.from('expense_shares').update({
+      status: accept ? 'accepted' : 'rejected',
+      responded_at: new Date().toISOString()
+    }).eq('id', share.id);
+
+    if (accept) {
+      // Garantir que o mês existe para o usuário
+      const { data: monthData } = await supabase.from('months').select('id').eq('id', share.source_month_id).single();
+      if (!monthData) {
+        const [y, m] = share.source_month_id.split('-');
+        await supabase.from('months').insert({ id: share.source_month_id, year: parseInt(y), month_name: MONTH_NAMES[parseInt(m) - 1] });
+      }
+      // Criar item no lançamento do usuário que aceitou
+      const isPagamento = share.expense_type.includes('pagamento');
+      await supabase.from('items').insert({
+        id: Math.random().toString(36).substr(2, 9),
+        month_id: share.source_month_id,
+        type: share.expense_type.startsWith('card_') ? (isPagamento ? 'expense_pagamento' : 'expense_vale') : share.expense_type,
+        name: `${share.expense_name} (compartilhado)`,
+        pagamento: isPagamento ? share.share_value : 0,
+        vale: !isPagamento ? share.share_value : 0,
+      });
+    }
+    setNotifications(prev => prev.filter(n => n.id !== share.id));
+    if (currentMonthId === share.source_month_id && accept) fetchData();
+  };
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -562,6 +697,15 @@ export default function App() {
             <Receipt className="w-5 h-5 mr-3" />
             Lançamentos
           </button>
+          {userProfile?.role === 'admin' && (
+            <button 
+              onClick={() => { setActiveView('settings'); setSidebarOpen(false); loadAdminUsers(); }}
+              className={`w-full flex items-center px-4 py-3.5 rounded-2xl font-bold transition-all ${activeView === 'settings' ? 'bg-violet-500/10 text-violet-400 border border-violet-500/20' : 'text-white/50 hover:text-white hover:bg-white/5 border border-transparent'}`}
+            >
+              <Settings className="w-5 h-5 mr-3" />
+              Configurações
+            </button>
+          )}
         </nav>
 
         <div className="p-4 border-t border-white/5">
@@ -589,10 +733,11 @@ export default function App() {
               <Menu className="w-5 h-5" />
             </button>
             <h2 className="text-sm lg:text-lg font-bold text-white/90 truncate">
-              {activeView === 'dashboard' ? 'Dashboard' : 'Lançamentos'}
+              {activeView === 'dashboard' ? 'Dashboard' : activeView === 'lancamentos' ? 'Lançamentos' : 'Configurações'}
             </h2>
           </div>
-          
+
+          <div className="flex items-center gap-2">
           <div className="flex items-center gap-1 bg-black/40 px-1.5 py-1 rounded-xl border border-white/10 relative">
             <button onClick={() => setCurrentYear(y => y - 1)} className="p-1.5 text-white/40 hover:text-white hover:bg-white/10 rounded-lg transition-colors"><ChevronLeft className="w-3.5 h-3.5"/></button>
             <span className="w-10 text-center font-bold text-emerald-400 font-mono text-xs">{currentYear}</span>
@@ -648,6 +793,55 @@ export default function App() {
                 </div>
               </>
             )}
+          </div>
+            {/* Notification Bell */}
+            <div className="relative">
+              <button
+                onClick={() => setShowNotifications(p => !p)}
+                className="p-2 text-white/50 hover:text-white hover:bg-white/10 rounded-xl transition-all relative"
+              >
+                <Bell className="w-5 h-5" />
+                {notifications.length > 0 && (
+                  <span className="absolute -top-0.5 -right-0.5 w-4 h-4 bg-rose-500 rounded-full text-[9px] font-bold flex items-center justify-center">{notifications.length}</span>
+                )}
+              </button>
+              {showNotifications && (
+                <>
+                  <div className="fixed inset-0 z-40" onClick={() => setShowNotifications(false)} />
+                  <div className="absolute right-0 top-full mt-2 z-50 w-80 bg-[#1a1d23] border border-white/10 rounded-2xl shadow-2xl overflow-hidden">
+                    <div className="px-4 py-3 border-b border-white/10 flex items-center gap-2">
+                      <Bell className="w-4 h-4 text-emerald-400" />
+                      <span className="font-bold text-sm">Notificações</span>
+                    </div>
+                    {notifications.length === 0 ? (
+                      <div className="px-4 py-8 text-center text-white/30 text-sm">Nenhuma notificação pendente</div>
+                    ) : (
+                      <div className="max-h-80 overflow-y-auto divide-y divide-white/5">
+                        {notifications.map(n => (
+                          <div key={n.id} className="p-4">
+                            <p className="text-xs text-white/50 mb-1">{n.from_user_email}</p>
+                            <p className="font-bold text-sm text-white mb-0.5">{n.expense_name}</p>
+                            <div className="flex items-center gap-2 text-xs mb-3">
+                              <span className="text-white/50">Sua parte:</span>
+                              <span className="text-emerald-400 font-mono font-bold">{formatCurrency(n.share_value)}</span>
+                              <span className="text-white/30">de {formatCurrency(n.expense_value)}</span>
+                            </div>
+                            <div className="flex gap-2">
+                              <button onClick={() => respondToShare(n, true)} className="flex-1 flex items-center justify-center gap-1 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-400 text-xs font-bold py-2 rounded-xl transition-all">
+                                <CheckCircle className="w-3.5 h-3.5" /> Aceitar
+                              </button>
+                              <button onClick={() => respondToShare(n, false)} className="flex-1 flex items-center justify-center gap-1 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 text-xs font-bold py-2 rounded-xl transition-all">
+                                <XCircle className="w-3.5 h-3.5" /> Recusar
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
           </div>
         </header>
 
@@ -840,6 +1034,9 @@ export default function App() {
                               <div className="flex gap-0.5 shrink-0">
                                 <button onClick={() => toggleRecurring(item)} className={`p-1 rounded transition-all ${item.is_recurring ? 'text-emerald-400 bg-emerald-500/10' : 'text-white/20 hover:text-white opacity-0 group-hover:opacity-100'}`} title="Recorrente">
                                   <Repeat className="w-3 h-3" />
+                                <button onClick={() => { setShareModal({ item }); setShareValue(String((item.pagamento||0) / 2)); }} className="p-1 text-white/20 hover:text-indigo-400 opacity-0 group-hover:opacity-100 rounded transition-all" title="Compartilhar">
+                                  <Share2 className="w-3 h-3" />
+                                </button>
                                 </button>
                                 {isEdit ? (
                                   <button onClick={() => saveItem(item)} className="p-1 bg-emerald-500/20 text-emerald-400 rounded">
@@ -902,6 +1099,9 @@ export default function App() {
                               <div className="flex gap-0.5 shrink-0">
                                 <button onClick={() => toggleRecurring(item)} className={`p-1 rounded transition-all ${item.is_recurring ? 'text-indigo-400 bg-indigo-500/10' : 'text-white/20 hover:text-white opacity-0 group-hover:opacity-100'}`} title="Recorrente">
                                   <Repeat className="w-3 h-3" />
+                                <button onClick={() => { setShareModal({ item }); setShareValue(String((item.vale||0) / 2)); }} className="p-1 text-white/20 hover:text-indigo-400 opacity-0 group-hover:opacity-100 rounded transition-all" title="Compartilhar">
+                                  <Share2 className="w-3 h-3" />
+                                </button>
                                 </button>
                                 {isEdit ? (
                                   <button onClick={() => saveItem(item)} className="p-1 bg-indigo-500/20 text-indigo-400 rounded">
@@ -1002,6 +1202,9 @@ export default function App() {
                                   <div className="flex gap-0.5 shrink-0">
                                     <button onClick={() => toggleRecurring(item)} className={`p-1 rounded transition-all ${item.is_recurring ? (isPagamento ? 'text-emerald-400 bg-emerald-500/10' : 'text-indigo-400 bg-indigo-500/10') : 'text-white/20 hover:text-white opacity-0 group-hover:opacity-100'}`} title="Recorrente">
                                       <Repeat className="w-3 h-3" />
+                                    <button onClick={() => { setShareModal({ item }); setShareValue(String(((Number(item.pagamento)||0) + (Number(item.vale)||0)) / 2)); }} className="p-1 text-white/20 hover:text-indigo-400 opacity-0 group-hover:opacity-100 rounded transition-all" title="Compartilhar">
+                                      <Share2 className="w-3 h-3" />
+                                    </button>
                                     </button>
                                     {isEdit ? (
                                       <button onClick={() => saveItem(item)} className="p-1 bg-emerald-500/20 text-emerald-400 rounded">
@@ -1100,6 +1303,188 @@ export default function App() {
             </div>
           )}
         </div>
+
+        {/* ======= VIEW: SETTINGS (admin) ======= */}
+        {activeView === 'settings' && userProfile?.role === 'admin' && (
+          <div className="flex-1 overflow-y-auto p-3 lg:p-6 pb-20 lg:pb-6 relative z-10 custom-scrollbar">
+            <div className="max-w-2xl mx-auto space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+
+              {/* Header da página */}
+              <div className="flex items-center gap-3 mb-2">
+                <div className="p-2.5 bg-violet-500/10 border border-violet-500/20 rounded-xl">
+                  <Shield className="w-5 h-5 text-violet-400" />
+                </div>
+                <div>
+                  <h2 className="font-extrabold text-lg">Painel Administrativo</h2>
+                  <p className="text-white/40 text-xs">Gerencie usuários do ZimFinance</p>
+                </div>
+              </div>
+
+              {/* Criar novo usuário */}
+              <div className="bg-white/3 border border-white/8 rounded-2xl overflow-hidden">
+                <div className="flex items-center gap-2 px-5 py-4 border-b border-white/5">
+                  <UserPlus className="w-4 h-4 text-emerald-400" />
+                  <span className="font-bold text-sm">Criar Novo Usuário</span>
+                </div>
+                <div className="p-5 space-y-4">
+                  {adminMsg && (
+                    <div className={`p-3 rounded-xl text-sm font-medium border ${
+                      adminMsg.type === 'success'
+                        ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                        : 'bg-rose-500/10 text-rose-400 border-rose-500/20'
+                    }`}>{adminMsg.text}</div>
+                  )}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-[10px] font-bold text-white/40 uppercase tracking-widest mb-1.5">Nome</label>
+                      <input
+                        type="text"
+                        value={newUserName}
+                        onChange={e => setNewUserName(e.target.value)}
+                        placeholder="Nome do usuário"
+                        className="w-full bg-black/20 border border-white/10 focus:border-emerald-500 p-2.5 rounded-xl text-sm text-white outline-none transition-all"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold text-white/40 uppercase tracking-widest mb-1.5">E-mail *</label>
+                      <input
+                        type="email"
+                        value={newUserEmail}
+                        onChange={e => setNewUserEmail(e.target.value)}
+                        placeholder="email@exemplo.com"
+                        className="w-full bg-black/20 border border-white/10 focus:border-emerald-500 p-2.5 rounded-xl text-sm text-white outline-none transition-all"
+                      />
+                    </div>
+                    <div className="sm:col-span-2">
+                      <label className="block text-[10px] font-bold text-white/40 uppercase tracking-widest mb-1.5">Senha *</label>
+                      <input
+                        type="password"
+                        value={newUserPassword}
+                        onChange={e => setNewUserPassword(e.target.value)}
+                        placeholder="Mínimo 6 caracteres"
+                        className="w-full bg-black/20 border border-white/10 focus:border-emerald-500 p-2.5 rounded-xl text-sm text-white outline-none transition-all"
+                      />
+                    </div>
+                  </div>
+                  <button
+                    onClick={createAdminUser}
+                    disabled={adminLoading}
+                    className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-emerald-500 to-emerald-600 text-white font-bold py-3 rounded-xl hover:from-emerald-400 hover:to-emerald-500 transition-all disabled:opacity-50"
+                  >
+                    {adminLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <UserPlus className="w-4 h-4" />}
+                    Criar Usuário
+                  </button>
+                </div>
+              </div>
+
+              {/* Lista de usuários */}
+              <div className="bg-white/3 border border-white/8 rounded-2xl overflow-hidden">
+                <div className="flex items-center gap-2 px-5 py-4 border-b border-white/5">
+                  <Users className="w-4 h-4 text-indigo-400" />
+                  <span className="font-bold text-sm">Usuários Cadastrados</span>
+                  <span className="ml-auto text-xs text-white/30 font-mono">{adminUsers.length}</span>
+                </div>
+                {adminLoading && adminUsers.length === 0 ? (
+                  <div className="p-8 flex justify-center"><Loader2 className="w-6 h-6 animate-spin text-emerald-500" /></div>
+                ) : (
+                  <div className="divide-y divide-white/5">
+                    {adminUsers.map(u => (
+                      <div key={u.id} className="flex items-center px-5 py-3.5 gap-3">
+                        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-emerald-500/30 to-indigo-500/30 border border-white/10 flex items-center justify-center text-xs font-bold text-white/70 flex-shrink-0">
+                          {(u.display_name || u.email).charAt(0).toUpperCase()}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-bold text-white truncate">{u.display_name || u.email.split('@')[0]}</p>
+                          <p className="text-xs text-white/40 truncate">{u.email}</p>
+                        </div>
+                        <span className={`text-[10px] font-bold px-2 py-1 rounded-lg ${
+                          u.role === 'admin'
+                            ? 'bg-violet-500/20 text-violet-400 border border-violet-500/20'
+                            : 'bg-white/5 text-white/40 border border-white/10'
+                        }`}>{u.role === 'admin' ? 'Admin' : 'User'}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+            </div>
+          </div>
+        )}
+
+        {/* ======= MODAL: COMPARTILHAR DESPESA ======= */}
+        {shareModal && (
+          <>
+            <div className="fixed inset-0 bg-black/70 z-[80] backdrop-blur-sm" onClick={() => { setShareModal(null); setShareEmail(''); setShareValue(''); setShareMsg(null); }} />
+            <div className="fixed inset-0 z-[90] flex items-center justify-center p-4">
+              <div className="bg-[#1a1d23] border border-white/10 rounded-3xl w-full max-w-sm shadow-2xl">
+                <div className="flex items-center gap-3 px-6 py-4 border-b border-white/10">
+                  <div className="p-2 bg-indigo-500/10 rounded-xl"><Share2 className="w-4 h-4 text-indigo-400" /></div>
+                  <div>
+                    <h3 className="font-bold text-sm">Compartilhar Despesa</h3>
+                    <p className="text-white/40 text-xs truncate max-w-[180px]">{shareModal.item.name || 'Sem nome'}</p>
+                  </div>
+                  <button onClick={() => { setShareModal(null); setShareEmail(''); setShareValue(''); setShareMsg(null); }} className="ml-auto p-1.5 text-white/40 hover:text-white rounded-lg">
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+                <div className="p-6 space-y-4">
+                  {shareMsg && (
+                    <div className={`p-3 rounded-xl text-xs font-medium ${
+                      shareMsg.type === 'success' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'
+                    }`}>{shareMsg.text}</div>
+                  )}
+                  <div className="bg-white/3 border border-white/8 rounded-xl p-3 flex items-center justify-between">
+                    <div>
+                      <p className="text-[10px] text-white/40 uppercase tracking-wider font-bold">Valor total</p>
+                      <p className="text-lg font-mono font-bold text-white">{formatCurrency((Number(shareModal.item.pagamento)||0) + (Number(shareModal.item.vale)||0))}</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-[10px] text-white/40 uppercase tracking-wider font-bold">Conta</p>
+                      <p className="text-xs font-bold text-indigo-400">{shareModal.item.type.includes('pagamento') ? 'Pagamento' : 'Adiantamento'}</p>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-white/40 uppercase tracking-widest mb-1.5">E-mail do usuário</label>
+                    <input
+                      type="email"
+                      value={shareEmail}
+                      onChange={e => setShareEmail(e.target.value)}
+                      placeholder="email@exemplo.com"
+                      className="w-full bg-black/20 border border-white/10 focus:border-indigo-500 p-3 rounded-xl text-sm text-white outline-none transition-all"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-white/40 uppercase tracking-widest mb-1.5">Valor que ele(a) vai pagar</label>
+                    <input
+                      type="number"
+                      value={shareValue}
+                      onChange={e => setShareValue(e.target.value)}
+                      placeholder="0,00"
+                      min="0"
+                      step="0.01"
+                      className="w-full bg-black/20 border border-white/10 focus:border-indigo-500 p-3 rounded-xl text-sm text-white outline-none transition-all"
+                    />
+                  </div>
+                  <div className="flex gap-3">
+                    <button onClick={() => { setShareModal(null); setShareEmail(''); setShareValue(''); setShareMsg(null); }} className="flex-1 py-3 rounded-xl border border-white/10 text-white/50 text-sm font-bold hover:bg-white/5 transition-all">
+                      Cancelar
+                    </button>
+                    <button
+                      onClick={sendExpenseShare}
+                      disabled={shareLoading}
+                      className="flex-1 py-3 rounded-xl bg-gradient-to-r from-indigo-500 to-indigo-600 text-white text-sm font-bold hover:from-indigo-400 hover:to-indigo-500 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+                    >
+                      {shareLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Share2 className="w-4 h-4" />}
+                      Compartilhar
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </>
+        )}
+
       </main>
 
       {/* Mobile Bottom Navigation */}
@@ -1119,6 +1504,15 @@ export default function App() {
             <Receipt className="w-5 h-5" />
             <span className="text-[10px] font-bold mt-0.5">Lançamentos</span>
           </button>
+          {userProfile?.role === 'admin' && (
+            <button
+              onClick={() => { setActiveView('settings'); loadAdminUsers(); }}
+              className={`flex flex-col items-center justify-center flex-1 h-full transition-all ${activeView === 'settings' ? 'text-violet-400' : 'text-white/40'}`}
+            >
+              <Settings className="w-5 h-5" />
+              <span className="text-[10px] font-bold mt-0.5">Admin</span>
+            </button>
+          )}
           <button
             onClick={handleLogout}
             className="flex flex-col items-center justify-center flex-1 h-full text-white/40 hover:text-rose-400 transition-all"
