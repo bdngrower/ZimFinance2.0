@@ -659,10 +659,10 @@ export default function App() {
         </div>
       </div>
     </div>
-    )
-  }
+  );
+}
 
-  return (
+return (
     <div className="flex h-screen bg-[#0f1115] text-white font-sans overflow-hidden selection:bg-emerald-500/30">
       {/* Mobile Sidebar Overlay */}
       {sidebarOpen && (
