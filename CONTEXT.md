@@ -33,15 +33,16 @@ O ZimFinance 2.0 nasceu da necessidade de modernizar um controle financeiro que 
 #### C. Dashboard e Projeção
 - **Decisão**: O dashboard anual agora calcula a **Projeção de Saldo** (Receita Total Anual - Gasto Total Anual), dando uma visão clara de quanto sobrará ao final do ciclo.
 
-#### D. Correção de Encoding
-- **Incidente**: Durante o desenvolvimento, o salvamento via terminal corrompeu caracteres especiais (acentuação).
-- **Correção**: O arquivo foi sanitizado e re-salvo em **UTF-8**, garantindo que "13º Salário", "Cartões" e outros termos apareçam corretamente em qualquer plataforma (Vercel, Local, etc).
+#### E. Sistema de Compartilhamento (Maio 2026)
+- **Problema**: Necessidade de dividir gastos específicos de forma granular.
+- **Solução**: Implementamos compartilhamento de itens e despesas individuais de cartão.
+- **Sincronização**: Uso de `linked_share_id` e Database Triggers para sincronizar exclusões entre contas.
 
 ## 💡 Informações Importantes para Futuras Conversas
 
-- **Acentuação**: Sempre salvar arquivos em UTF-8. Se usar scripts de substituição, garantir que o encoding seja preservado.
-- **RLS**: Nunca remova o filtro de `user_id` nas queries do Supabase.
-- **Estado Local**: O `App.tsx` utiliza `useMemo` pesado para calcular totais em tempo real. Qualquer mudança na estrutura dos `items` ou `cardExpenses` deve ser refletida nas dependências desses `useMemo`.
+- **Acentuação**: Sempre salvar arquivos em UTF-8.
+- **RLS**: Políticas de `DELETE` ativas na tabela `expense_shares` para gerenciar vínculos.
+- **Sincronização**: A exclusão sincronizada depende do Trigger `on_share_deleted` no Supabase.
 
 ---
-*Documento gerado pela Antigravity em Maio de 2026.*
+*Documento atualizado pela Antigravity em 11 de Maio de 2026.*

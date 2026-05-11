@@ -11,8 +11,9 @@ A segurança dos dados financeiros é a nossa prioridade máxima. O ZimFinance 2
 
 ### 2. Row Level Security (RLS)
 - O PostgreSQL do Supabase possui políticas de **RLS ativas em todas as tabelas**.
-- **Isolamento de Dados**: Um usuário autenticado só pode visualizar, inserir, atualizar ou deletar linhas que pertençam ao seu `user_id`.
-- Mesmo se alguém obtiver a chave anônima da API, não conseguirá acessar dados de outros usuários sem o token de autenticação correto.
+- **Isolamento de Dados**: Por padrão, um usuário autenticado só pode visualizar linhas que pertençam ao seu `user_id`.
+- **Políticas de Compartilhamento**: Implementamos exceções controladas via RLS na tabela `expense_shares`, permitindo que destinatários visualizem convites específicos e excluam registros vinculados.
+- **Triggers de Sistema**: Usamos funções com `SECURITY DEFINER` para permitir a sincronização de exclusão entre contas de forma segura e controlada pelo sistema.
 
 ### 3. Proteção de Variáveis de Ambiente
 - Chaves sensíveis (como segredos do banco de dados) são mantidas no lado do servidor ou injetadas via Vercel no momento do deploy.

@@ -9,6 +9,7 @@ ZimFinance 2.0 é um dashboard financeiro moderno, premium e ultra-rápido, dese
 - **Dashboard Inteligente**: Visualização rápida de Receitas, Gastos e Saldo (Total, Pagamento e Adiantamento).
 - **Lançamentos Detalhados**: Organização de despesas por categoria de recebimento (Dia 05 e Dia 20).
 - **Gestão Granular de Cartões**: Adicione compras individuais em cada cartão. O sistema calcula o total automaticamente somando a base fixa e as despesas variáveis.
+- **Compartilhamento de Despesas**: Divida despesas com outros usuários com sincronização automática de exclusão.
 - **Visão Anual**: Gráficos comparativos de receitas vs. despesas com projeção de saldo para o ano todo.
 - **Seletor de Mês Calendário**: Navegação fluida entre meses através de um seletor em grade.
 - **Segurança com Supabase**: Autenticação robusta e persistência de dados em tempo real com políticas de segurança (RLS).

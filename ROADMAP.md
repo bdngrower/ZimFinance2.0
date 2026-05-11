@@ -15,6 +15,7 @@ Este documento descreve as fases de desenvolvimento e as funcionalidades futuras
 - [x] **Redesign Premium**: Cards compactos, tipografia refinada e layout profissional.
 - [x] **Seletor de Mês**: Grid de seleção rápida de meses.
 - [x] **Projeção Anual**: Cálculo de saldo acumulado anual no dashboard.
+- [x] **Compartilhamento Granular**: Dividir despesas e cartões com outros usuários com exclusão sincronizada.
 
 ## 🏗️ Fase 3: Próximos Passos (Curto Prazo)
 - [ ] **Categorização de Gastos**: Adicionar ícones ou tags (Alimentação, Lazer, Saúde) para melhor detalhamento no gráfico de pizza.
