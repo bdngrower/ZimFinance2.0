@@ -1288,9 +1288,9 @@ export default function App() {
                     </div>
                   </div>
                 </div>
-              )}
+              })}
             </div>
-          )}
+          })}
 
         {/* ======= VIEW: SETTINGS (admin) ======= */}
         {activeView === 'settings' && userProfile?.role === 'admin' && (
@@ -1398,7 +1398,7 @@ export default function App() {
 
             </div>
           </div>
-        )}
+        })}
 
         {/* ======= MODAL: COMPARTILHAR DESPESA ======= */}
         {shareModal && (
@@ -1470,7 +1470,7 @@ export default function App() {
                 </div>
               </div>
             </>
-          )}
+          })}
 
       </main>
 
