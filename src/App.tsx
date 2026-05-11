@@ -659,7 +659,7 @@ export default function App() {
         </div>
       </div>
     </div>
-    );
+    )
   }
 
   return (
@@ -785,8 +785,6 @@ export default function App() {
                                 ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
                                 : 'text-white/60 hover:bg-white/10 hover:text-white'
                           }`}
-                        >
-                          {m.substring(0, 3)}
                         </button>
                       );
                     })}
@@ -883,7 +881,7 @@ export default function App() {
                       {card.sub && <p className="text-[10px] text-white/30 font-mono mt-1">{card.sub}</p>}
                     </div>
                   );
-                })}
+                ))}
                 </div>
 
                 {activeView === 'dashboard' ? (
@@ -1060,7 +1058,7 @@ export default function App() {
                                 </div>
                               </div>
                           );
-                        })}
+                        ))}
                         {items.filter(i => i.type === 'expense_pagamento').length === 0 && (
                           <div className="px-3 py-4 text-center text-white/20 text-xs">Nenhuma conta</div>
                         )}
@@ -1136,7 +1134,7 @@ export default function App() {
                                 </div>
                               </div>
                           );
-                        })}
+                        ))}
                         {items.filter(i => i.type === 'expense_vale').length === 0 && (
                           <div className="px-3 py-4 text-center text-white/20 text-xs">Nenhuma conta</div>
                         )}
