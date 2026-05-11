@@ -658,6 +658,10 @@ export default function App() {
           </form>
         </div>
       </div>
+    </div>
+  </div>
+</div>
+</div>
     );
   }
 
@@ -717,9 +721,9 @@ export default function App() {
             <button onClick={handleLogout} className="p-2 bg-white/5 hover:bg-rose-500/20 hover:text-rose-400 rounded-xl text-white/70 transition-colors">
               <LogOut className="w-4 h-4" />
             </button>
-          </div>
         </div>
-      </aside>
+      </div>
+    </aside>
 
       {/* Main Content Area */}
       <main className="flex-1 flex flex-col relative overflow-hidden">
@@ -835,7 +839,7 @@ export default function App() {
                               </button>
                             </div>
                           </div>
-                        ))}
+                        )))}
                       </div>
                     )}
                   </div>
@@ -1470,9 +1474,8 @@ export default function App() {
                   </div>
                 </div>
               </div>
-            </div>
-          </>
-        )}
+            </>
+          )}
 
       </main>
 
