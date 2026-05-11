@@ -1167,6 +1167,7 @@ export default function App() {
                           const baseVal = Number(item[amountField] || 0);
                           const expsSum = expenses.reduce((s, e) => s + Number(e.value || 0), 0);
                           const displayTotal = baseVal + expsSum;
+                          
                           return (
                             <div key={item.id} className="border-b border-white/5 last:border-0">
                               <div className={`flex flex-col transition-all group ${isEdit ? 'bg-white/5' : 'hover:bg-white/3'} ${sentShares.some(s => s.source_item_id === item.id) ? 'border-l-2 border-indigo-500' : ''}`}>
@@ -1179,96 +1180,101 @@ export default function App() {
                                     <span className="text-white/40">Minha parte: <span className={isPagamento ? 'text-emerald-400' : 'text-indigo-400'}>{formatCurrency(displayTotal - s.share_value)}</span></span>
                                   </div>
                                 ))}
+                                
                                 <div className="flex items-center gap-2 px-3 py-2.5 transition-all">
-                                <button
-                                  onClick={() => toggleExpandCard(item.id)}
-                                  className={`p-0.5 rounded transition-all shrink-0 ${isExpanded ? 'text-white/60' : 'text-white/20 hover:text-white/60'}`}
-                                >
-                                  <ChevronRight className={`w-3 h-3 transition-transform duration-200 ${isExpanded ? 'rotate-90' : ''}`} />
-                                </button>
-                                <input
-                                  type="text"
-                                  value={item.name}
-                                  onChange={(e) => updateItemLocal(item.id, 'name', e.target.value)}
-                                  readOnly={!isEdit}
-                                  className="flex-1 bg-transparent text-xs font-medium text-white/80 outline-none min-w-0"
-                                  placeholder="Nome do cartão"
-                                />
-                                <select
-                                  value={isPagamento ? 'pagamento' : 'vale'}
-                                  onChange={(e) => updateCardSource(item, e.target.value as 'pagamento' | 'vale')}
-                                  disabled={!isEdit}
-                                  className={`text-[10px] font-bold outline-none appearance-none cursor-pointer rounded px-1.5 py-0.5 border transition-all ${
-                                    isPagamento
-                                      ? 'bg-emerald-500/15 border-emerald-500/20 text-emerald-400'
-                                      : 'bg-indigo-500/15 border-indigo-500/20 text-indigo-400'
-                                  }`}
-                                >
-                                  <option value="pagamento" className="bg-[#0f1115]">Pgto</option>
-                                  <option value="vale" className="bg-[#0f1115]">Adto</option>
-                                </select>
-                                <span className="text-white/30 text-[10px]">R$</span>
-                                {hasExpenses ? (
-                                  <span className={`w-20 text-xs font-mono font-bold text-right ${isPagamento ? 'text-emerald-400' : 'text-indigo-400'}`}>
-                                    {formatCurrency(displayTotal).replace('R$\u00a0', '')}
-                                  </span>
-                                ) : (
-                                  <input
-                                    type="number"
-                                    value={item[amountField] || ''}
-                                    onChange={(e) => updateItemLocal(item.id, amountField, e.target.value)}
-                                    readOnly={!isEdit}
-                                    className={`w-16 bg-transparent text-xs font-mono text-right outline-none ${isPagamento ? 'text-emerald-400' : 'text-indigo-400'}`}
-                                  />
-                                )}
-                                <div className="flex gap-0.5 shrink-0 opacity-0 group-hover:opacity-100 transition-all">
-                                  <button onClick={() => toggleRecurring(item)} className={`p-1 rounded ${item.is_recurring ? 'text-emerald-400 bg-emerald-500/10' : 'text-white/20'}`}><Repeat className="w-3 h-3" /></button>
-                                  <button onClick={() => { setShareModal({ item }); setShareValue(String(displayTotal / 2)); }} className="p-1 text-white/20 hover:text-indigo-400"><Share2 className="w-3 h-3" /></button>
-                                  {isEdit ? (
-                                    <button onClick={() => saveItem(item)} className="p-1 bg-emerald-500/20 text-emerald-400 rounded"><Check className="w-3 h-3" /></button>
-                                  ) : (
-                                    <button onClick={() => setEditingItems(p => ({...p, [item.id]: true}))} className="p-1 text-white/20 hover:text-white"><Edit2 className="w-3 h-3" /></button>
-                                  )}
-                                  <button onClick={() => removeItem(item.id)} className="p-1 text-white/20 hover:text-rose-400"><Trash2 className="w-3 h-3" /></button>
-                                </div>
-                              </div>
-                              {isExpanded && (
-                                <div className="bg-black/30 border-t border-white/5 divide-y divide-white/5">
-                                  {expenses.map(exp => {
-                                    const isExpEdit = editingCardExpenses[exp.id];
-                                    return (
-                                      <div key={exp.id} className="flex items-center gap-2 pl-8 pr-3 py-2 group">
-                                        <input
-                                          type="text"
-                                          value={exp.name}
-                                          onChange={(e) => updateCardExpenseLocal(item.id, exp.id, 'name', e.target.value)}
-                                          readOnly={!isExpEdit}
-                                          className="flex-1 bg-transparent text-[11px] text-white/70 outline-none"
-                                        />
-                                        <span className="text-white/20 text-[10px]">R$</span>
-                                        <input
-                                          type="number"
-                                          value={exp.value || ''}
-                                          onChange={(e) => updateCardExpenseLocal(item.id, exp.id, 'value', e.target.value)}
-                                          readOnly={!isExpEdit}
-                                          className="w-16 bg-transparent text-[11px] font-mono text-right outline-none text-white/90"
-                                        />
-                                        <div className="flex gap-0.5 opacity-0 group-hover:opacity-100 transition-all">
-                                          {isExpEdit ? (
-                                            <button onClick={() => saveCardExpense(item, exp)} className="p-1 bg-emerald-500/20 text-emerald-400 rounded"><Check className="w-2.5 h-2.5" /></button>
-                                          ) : (
-                                            <button onClick={() => setEditingCardExpenses(p => ({...p, [exp.id]: true}))} className="p-1 text-white/20"><Edit2 className="w-2.5 h-2.5" /></button>
-                                          )}
-                                          <button onClick={() => removeCardExpense(item, exp.id)} className="p-1 text-white/20 hover:text-rose-400"><Trash2 className="w-2.5 h-2.5" /></button>
-                                        </div>
-                                      </div>
-                                    );
-                                  })}
-                                  <button onClick={() => addCardExpense(item)} className="px-8 py-2 text-[10px] text-white/30 hover:text-white transition-all flex items-center gap-1">
-                                    <Plus className="w-3 h-3" /> Adicionar compra
+                                  <button
+                                    onClick={() => toggleExpandCard(item.id)}
+                                    className={`p-0.5 rounded transition-all shrink-0 ${isExpanded ? 'text-white/60' : 'text-white/20 hover:text-white/60'}`}
+                                  >
+                                    <ChevronRight className={`w-3 h-3 transition-transform duration-200 ${isExpanded ? 'rotate-90' : ''}`} />
                                   </button>
+                                  <input
+                                    type="text"
+                                    value={item.name}
+                                    onChange={(e) => updateItemLocal(item.id, 'name', e.target.value)}
+                                    readOnly={!isEdit}
+                                    className="flex-1 bg-transparent text-xs font-medium text-white/80 outline-none min-w-0"
+                                    placeholder="Nome do cartão"
+                                  />
+                                  <select
+                                    value={isPagamento ? 'pagamento' : 'vale'}
+                                    onChange={(e) => updateCardSource(item, e.target.value as 'pagamento' | 'vale')}
+                                    disabled={!isEdit}
+                                    className={`text-[10px] font-bold outline-none appearance-none cursor-pointer rounded px-1.5 py-0.5 border transition-all ${
+                                      isPagamento
+                                        ? 'bg-emerald-500/15 border-emerald-500/20 text-emerald-400'
+                                        : 'bg-indigo-500/15 border-indigo-500/20 text-indigo-400'
+                                    }`}
+                                  >
+                                    <option value="pagamento" className="bg-[#0f1115]">Pgto</option>
+                                    <option value="vale" className="bg-[#0f1115]">Adto</option>
+                                  </select>
+                                  <span className="text-white/30 text-[10px]">R$</span>
+                                  {hasExpenses ? (
+                                    <span className={`w-20 text-xs font-mono font-bold text-right ${isPagamento ? 'text-emerald-400' : 'text-indigo-400'}`}>
+                                      {formatCurrency(displayTotal).replace('R$\u00a0', '')}
+                                    </span>
+                                  ) : (
+                                    <input
+                                      type="number"
+                                      value={item[amountField] || ''}
+                                      onChange={(e) => updateItemLocal(item.id, amountField, e.target.value)}
+                                      readOnly={!isEdit}
+                                      className={`w-16 bg-transparent text-xs font-mono text-right outline-none ${isPagamento ? 'text-emerald-400' : 'text-indigo-400'}`}
+                                    />
+                                  )}
+                                  <div className="flex gap-0.5 shrink-0 opacity-0 group-hover:opacity-100 transition-all">
+                                    <button onClick={() => toggleRecurring(item)} className={`p-1 rounded ${item.is_recurring ? 'text-emerald-400 bg-emerald-500/10' : 'text-white/20'}`}><Repeat className="w-3 h-3" /></button>
+                                    <button onClick={() => { setShareModal({ item }); setShareValue(String(displayTotal / 2)); }} className="p-1 text-white/20 hover:text-indigo-400"><Share2 className="w-3 h-3" /></button>
+                                    {isEdit ? (
+                                      <button onClick={() => saveItem(item)} className="p-1 bg-emerald-500/20 text-emerald-400 rounded"><Check className="w-3 h-3" /></button>
+                                    ) : (
+                                      <button onClick={() => setEditingItems(p => ({...p, [item.id]: true}))} className="p-1 text-white/20 hover:text-white"><Edit2 className="w-3 h-3" /></button>
+                                    )}
+                                    <button onClick={() => removeItem(item.id)} className="p-1 text-white/20 hover:text-rose-400"><Trash2 className="w-3 h-3" /></button>
+                                  </div>
                                 </div>
-                              )}
+                                
+                                {isExpanded && (
+                                  <div className="bg-black/30 border-t border-white/5 divide-y divide-white/5">
+                                    {expenses.map(exp => {
+                                      const isExpEdit = editingCardExpenses[exp.id];
+                                      return (
+                                        <div key={exp.id} className="flex items-center gap-2 pl-8 pr-3 py-2 group">
+                                          <input
+                                            type="text"
+                                            value={exp.name}
+                                            onChange={(e) => updateCardExpenseLocal(item.id, exp.id, 'name', e.target.value)}
+                                            readOnly={!isExpEdit}
+                                            className="flex-1 bg-transparent text-[11px] text-white/70 outline-none"
+                                          />
+                                          <span className="text-white/20 text-[10px]">R$</span>
+                                          <input
+                                            type="number"
+                                            value={exp.value || ''}
+                                            onChange={(e) => updateCardExpenseLocal(item.id, exp.id, 'value', e.target.value)}
+                                            readOnly={!isExpEdit}
+                                            className="w-16 bg-transparent text-[11px] font-mono text-right outline-none text-white/90"
+                                          />
+                                          <div className="flex gap-0.5 opacity-0 group-hover:opacity-100 transition-all">
+                                            {isExpEdit ? (
+                                              <button onClick={() => saveCardExpense(item, exp)} className="p-1 bg-emerald-500/20 text-emerald-400 rounded"><Check className="w-2.5 h-2.5" /></button>
+                                            ) : (
+                                              <>
+                                                <button onClick={() => setEditingCardExpenses(p => ({...p, [exp.id]: true}))} className="p-1 text-white/20"><Edit2 className="w-2.5 h-2.5" /></button>
+                                                <button onClick={() => removeCardExpense(item, exp.id)} className="p-1 text-white/20 hover:text-rose-400"><Trash2 className="w-2.5 h-2.5" /></button>
+                                              </>
+                                            )}
+                                          </div>
+                                        </div>
+                                      );
+                                    })}
+                                    <button onClick={() => addCardExpense(item)} className="px-8 py-2 text-[10px] text-white/30 hover:text-white transition-all flex items-center gap-1">
+                                      <Plus className="w-3 h-3" /> Adicionar compra
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
                             </div>
                           );
                         })}
@@ -1283,11 +1289,9 @@ export default function App() {
                     </div>
                   </div>
                 </div>
-                )}
-              </div>
-            )}
-          </div>
-        )}
+              )}
+            </div>
+          )}
 
         {/* ======= VIEW: SETTINGS (admin) ======= */}
         {activeView === 'settings' && userProfile?.role === 'admin' && (
