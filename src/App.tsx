@@ -1,19 +1,132 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Plus, Trash2, DollarSign, Wallet, TrendingDown, TrendingUp, Calendar, CreditCard, Loader2, ChevronLeft, ChevronRight, LogOut, Edit2, Check, Lock, LayoutDashboard, Receipt, Repeat, Menu, X, PieChart as PieChartIcon, Bell, Share2, Settings, Users, UserPlus, CheckCircle, XCircle, Shield } from 'lucide-react';
+import {
+  Plus,
+  Trash2,
+  DollarSign,
+  Wallet,
+  TrendingDown,
+  TrendingUp,
+  CreditCard,
+  Loader2,
+  ChevronLeft,
+  ChevronRight,
+  LogOut,
+  Edit2,
+  Check,
+  Lock,
+  LayoutDashboard,
+  Receipt,
+  Repeat,
+  Menu,
+  X,
+  PieChart as PieChartIcon,
+  Bell,
+  Share2,
+  Settings,
+  Users,
+  UserPlus,
+  CheckCircle,
+  XCircle,
+  Shield,
+} from 'lucide-react';
 import { supabase } from './lib/supabaseClient';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, PieChart, Pie, Cell } from 'recharts';
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+  Legend,
+  PieChart,
+  Pie,
+  Cell,
+} from 'recharts';
 
-const MONTH_NAMES = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
-const PIE_COLORS = ['#10b981', '#3b82f6', '#f43f5e', '#8b5cf6', '#f59e0b', '#64748b', '#ec4899', '#14b8a6', '#f97316', '#6366f1'];
+const MONTH_NAMES = [
+  'Janeiro',
+  'Fevereiro',
+  'Março',
+  'Abril',
+  'Maio',
+  'Junho',
+  'Julho',
+  'Agosto',
+  'Setembro',
+  'Outubro',
+  'Novembro',
+  'Dezembro',
+];
+
+const PIE_COLORS = [
+  '#10b981',
+  '#3b82f6',
+  '#f43f5e',
+  '#8b5cf6',
+  '#f59e0b',
+  '#64748b',
+  '#ec4899',
+  '#14b8a6',
+  '#f97316',
+  '#6366f1',
+];
 
 const formatCurrency = (value: number) => {
-  return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value);
+  return new Intl.NumberFormat('pt-BR', {
+    style: 'currency',
+    currency: 'BRL',
+  }).format(value || 0);
 };
 
-type ItemRecord = { id: string, name: string, pagamento: number, vale: number, type: string, is_recurring?: boolean, recurring_group_id?: string };
-type CardExpense = { id: string, card_item_id: string, name: string, value: number, is_recurring?: boolean, recurring_group_id?: string };
-type UserProfile = { id: string, email: string, display_name: string | null, role: 'admin' | 'user', created_at: string };
-type ExpenseShare = { id: string, from_user_id: string, to_user_id: string, from_user_email: string, expense_name: string, expense_value: number, share_value: number, expense_type: string, source_item_id: string | null, source_month_id: string, status: 'pending' | 'accepted' | 'rejected', created_at: string };
+type ItemRecord = {
+  id: string;
+  name: string;
+  pagamento: number;
+  vale: number;
+  type: string;
+  is_recurring?: boolean;
+  recurring_group_id?: string;
+};
+
+type CardExpense = {
+  id: string;
+  card_item_id: string;
+  name: string;
+  value: number;
+  is_recurring?: boolean;
+  recurring_group_id?: string;
+};
+
+type UserProfile = {
+  id: string;
+  email: string;
+  display_name: string | null;
+  role: 'admin' | 'user';
+  created_at: string;
+};
+
+type ExpenseShare = {
+  id: string;
+  from_user_id: string;
+  to_user_id: string;
+  from_user_email: string;
+  target_email?: string;
+  expense_name: string;
+  expense_value: number;
+  share_value: number;
+  expense_type: string;
+  source_item_id: string | null;
+  source_month_id: string;
+  status: 'pending' | 'accepted' | 'rejected';
+  created_at: string;
+};
+
+type AnnualTotals = {
+  income: number;
+  expense: number;
+  balance: number;
+};
 
 export default function App() {
   const [session, setSession] = useState<any>(null);
@@ -28,14 +141,16 @@ export default function App() {
 
   const [currentYear, setCurrentYear] = useState(realCurrentYear);
   const [currentMonthIndex, setCurrentMonthIndex] = useState(realCurrentMonth);
-
   const [loading, setLoading] = useState(true);
 
+  const [income, setIncome] = useState({
+    pagamento: 0,
+    vale: 0,
+    ferias: 0,
+    decimoTerceiro: 0,
+  });
 
-
-  const [income, setIncome] = useState({ pagamento: 0, vale: 0, ferias: 0, decimoTerceiro: 0 });
   const [items, setItems] = useState<ItemRecord[]>([]);
-
   const [editingItems, setEditingItems] = useState<{ [key: string]: boolean }>({});
   const [editingIncome, setEditingIncome] = useState(false);
   const [expandedCards, setExpandedCards] = useState<{ [key: string]: boolean }>({});
@@ -43,11 +158,10 @@ export default function App() {
   const [editingCardExpenses, setEditingCardExpenses] = useState<{ [expId: string]: boolean }>({});
 
   const [yearData, setYearData] = useState<any[]>([]);
-  const [annualTotals, setAnnualTotals] = useState({ income: 0, expense: 0 });
+  const [annualTotals, setAnnualTotals] = useState<AnnualTotals>({ income: 0, expense: 0, balance: 0 });
   const [showMonthPicker, setShowMonthPicker] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
-  // Admin & Compartilhamento
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [activeView, setActiveView] = useState<'dashboard' | 'lancamentos' | 'settings'>('dashboard');
   const [notifications, setNotifications] = useState<ExpenseShare[]>([]);
@@ -58,12 +172,12 @@ export default function App() {
   const [newUserEmail, setNewUserEmail] = useState('');
   const [newUserName, setNewUserName] = useState('');
   const [newUserPassword, setNewUserPassword] = useState('');
-  const [adminMsg, setAdminMsg] = useState<{ type: 'success' | 'error', text: string } | null>(null);
-  const [shareModal, setShareModal] = useState<{ item: ItemRecord, isCardExp?: boolean } | null>(null);
+  const [adminMsg, setAdminMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [shareModal, setShareModal] = useState<{ item: ItemRecord; isCardExp?: boolean } | null>(null);
   const [shareEmail, setShareEmail] = useState('');
   const [shareValue, setShareValue] = useState('');
   const [shareLoading, setShareLoading] = useState(false);
-  const [shareMsg, setShareMsg] = useState<{ type: 'success' | 'error', text: string } | null>(null);
+  const [shareMsg, setShareMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   const currentMonthId = `${currentYear}-${String(currentMonthIndex + 1).padStart(2, '0')}`;
 
@@ -86,72 +200,123 @@ export default function App() {
       fetchYearData();
       loadUserProfile();
       loadNotifications();
+
       const interval = setInterval(loadNotifications, 30000);
       return () => clearInterval(interval);
     }
   }, [currentMonthId, session?.user?.id]);
 
   const loadUserProfile = async () => {
-    const { data } = await supabase.from('profiles').select('*').eq('id', session?.user?.id).single();
+    if (!session?.user?.id) return;
+
+    const { data } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('id', session.user.id)
+      .single();
+
     if (data) setUserProfile(data as UserProfile);
   };
 
   const loadNotifications = async () => {
     if (!session?.user?.id) return;
+
     const { data } = await supabase
       .from('expense_shares')
       .select('*')
       .eq('to_user_id', session.user.id)
       .eq('status', 'pending')
       .order('created_at', { ascending: false });
+
     if (data) setNotifications(data as ExpenseShare[]);
 
-    // Também carregar shares enviados pelo usuário (para indicador visual nos itens)
     const { data: sent } = await supabase
       .from('expense_shares')
       .select('*')
       .eq('from_user_id', session.user.id)
       .eq('source_month_id', currentMonthId);
+
     if (sent) setSentShares(sent as ExpenseShare[]);
   };
 
   const loadAdminUsers = async () => {
     setAdminLoading(true);
-    const { data } = await supabase.from('profiles').select('*').order('created_at', { ascending: true });
+
+    const { data } = await supabase
+      .from('profiles')
+      .select('*')
+      .order('created_at', { ascending: true });
+
     if (data) setAdminUsers(data as UserProfile[]);
     setAdminLoading(false);
   };
 
   const createAdminUser = async () => {
-    if (!newUserEmail || !newUserPassword) { setAdminMsg({ type: 'error', text: 'Preencha e-mail e senha.' }); return; }
+    if (!newUserEmail || !newUserPassword) {
+      setAdminMsg({ type: 'error', text: 'Preencha e-mail e senha.' });
+      return;
+    }
+
     setAdminLoading(true);
     setAdminMsg(null);
+
     try {
       const { data: { session: s } } = await supabase.auth.getSession();
+
       const resp = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/admin-create-user`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${s?.access_token}` },
-        body: JSON.stringify({ email: newUserEmail, password: newUserPassword, display_name: newUserName })
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${s?.access_token}`,
+        },
+        body: JSON.stringify({
+          email: newUserEmail,
+          password: newUserPassword,
+          display_name: newUserName,
+        }),
       });
+
       const json = await resp.json();
       if (!resp.ok) throw new Error(json.error || 'Erro ao criar usuário');
+
       setAdminMsg({ type: 'success', text: `Usuário ${newUserEmail} criado com sucesso!` });
-      setNewUserEmail(''); setNewUserName(''); setNewUserPassword('');
+      setNewUserEmail('');
+      setNewUserName('');
+      setNewUserPassword('');
       await loadAdminUsers();
     } catch (err: any) {
       setAdminMsg({ type: 'error', text: err.message });
     }
+
     setAdminLoading(false);
   };
 
   const sendExpenseShare = async () => {
-    if (!shareModal || !shareEmail || !shareValue) { setShareMsg({ type: 'error', text: 'Preencha o e-mail e o valor.' }); return; }
+    if (!shareModal || !shareEmail || !shareValue) {
+      setShareMsg({ type: 'error', text: 'Preencha o e-mail e o valor.' });
+      return;
+    }
+
     setShareLoading(true);
     setShareMsg(null);
-    // Buscar o usuário pelo e-mail
-    const { data: targetProfile } = await supabase.from('profiles').select('id, email').eq('email', shareEmail.toLowerCase().trim()).single();
-    if (!targetProfile) { setShareMsg({ type: 'error', text: 'Usuário não encontrado no sistema.' }); setShareLoading(false); return; }
-    if (targetProfile.id === session?.user?.id) { setShareMsg({ type: 'error', text: 'Você não pode compartilhar consigo mesmo.' }); setShareLoading(false); return; }
+
+    const { data: targetProfile } = await supabase
+      .from('profiles')
+      .select('id, email')
+      .eq('email', shareEmail.toLowerCase().trim())
+      .single();
+
+    if (!targetProfile) {
+      setShareMsg({ type: 'error', text: 'Usuário não encontrado no sistema.' });
+      setShareLoading(false);
+      return;
+    }
+
+    if (targetProfile.id === session?.user?.id) {
+      setShareMsg({ type: 'error', text: 'Você não pode compartilhar consigo mesmo.' });
+      setShareLoading(false);
+      return;
+    }
 
     const item = shareModal.item;
     const totalValue = (Number(item.pagamento) || 0) + (Number(item.vale) || 0);
@@ -162,6 +327,7 @@ export default function App() {
       from_user_id: session?.user?.id,
       to_user_id: targetProfile.id,
       from_user_email: session?.user?.email,
+      target_email: targetProfile.email,
       expense_name: item.name || 'Despesa sem nome',
       expense_value: totalValue,
       share_value: sv,
@@ -169,35 +335,58 @@ export default function App() {
       source_item_id: item.id,
       source_month_id: currentMonthId,
     });
-    if (error) { setShareMsg({ type: 'error', text: 'Erro ao compartilhar. Tente novamente.' }); }
-    else { setShareMsg({ type: 'success', text: `Convite enviado para ${shareEmail}!` }); await loadNotifications(); }
+
+    if (error) {
+      setShareMsg({ type: 'error', text: 'Erro ao compartilhar. Tente novamente.' });
+    } else {
+      setShareMsg({ type: 'success', text: `Convite enviado para ${shareEmail}!` });
+      await loadNotifications();
+    }
+
     setShareLoading(false);
   };
 
   const respondToShare = async (share: ExpenseShare, accept: boolean) => {
-    await supabase.from('expense_shares').update({
-      status: accept ? 'accepted' : 'rejected',
-      responded_at: new Date().toISOString()
-    }).eq('id', share.id);
+    await supabase
+      .from('expense_shares')
+      .update({
+        status: accept ? 'accepted' : 'rejected',
+        responded_at: new Date().toISOString(),
+      })
+      .eq('id', share.id);
 
     if (accept) {
-      // Garantir que o mês existe para o usuário
-      const { data: monthData } = await supabase.from('months').select('id').eq('id', share.source_month_id).single();
+      const { data: monthData } = await supabase
+        .from('months')
+        .select('id')
+        .eq('id', share.source_month_id)
+        .single();
+
       if (!monthData) {
         const [y, m] = share.source_month_id.split('-');
-        await supabase.from('months').insert({ id: share.source_month_id, year: parseInt(y), month_name: MONTH_NAMES[parseInt(m) - 1] });
+        await supabase.from('months').insert({
+          id: share.source_month_id,
+          year: parseInt(y, 10),
+          month_name: MONTH_NAMES[parseInt(m, 10) - 1],
+        });
       }
-      // Criar item no lançamento do usuário que aceitou
+
       const isPagamento = share.expense_type.includes('pagamento');
+
       await supabase.from('items').insert({
         id: Math.random().toString(36).substr(2, 9),
         month_id: share.source_month_id,
-        type: share.expense_type.startsWith('card_') ? (isPagamento ? 'expense_pagamento' : 'expense_vale') : share.expense_type,
+        type: share.expense_type.startsWith('card_')
+          ? isPagamento
+            ? 'expense_pagamento'
+            : 'expense_vale'
+          : share.expense_type,
         name: `${share.expense_name} (compartilhado)`,
         pagamento: isPagamento ? share.share_value : 0,
         vale: !isPagamento ? share.share_value : 0,
       });
     }
+
     setNotifications(prev => prev.filter(n => n.id !== share.id));
     if (currentMonthId === share.source_month_id && accept) fetchData();
   };
@@ -206,7 +395,9 @@ export default function App() {
     e.preventDefault();
     setAuthLoading(true);
     setAuthError('');
+
     const { error } = await supabase.auth.signInWithPassword({ email, password });
+
     if (error) setAuthError(error.message);
     setAuthLoading(false);
   };
@@ -216,11 +407,19 @@ export default function App() {
   };
 
   const fetchYearData = async () => {
-    const { data: months } = await supabase.from('months').select('*').eq('year', currentYear);
+    const { data: months } = await supabase
+      .from('months')
+      .select('*')
+      .eq('year', currentYear);
+
     if (!months) return;
 
     const monthIds = months.map(m => m.id);
-    const { data: allItems } = await supabase.from('items').select('*').in('month_id', monthIds);
+
+    const { data: allItems } = await supabase
+      .from('items')
+      .select('*')
+      .in('month_id', monthIds);
 
     let totalInc = 0;
     let totalExp = 0;
@@ -230,8 +429,17 @@ export default function App() {
       const monthDb = months.find(m => m.id === mId);
       const mItems = allItems?.filter(i => i.month_id === mId) || [];
 
-      const rec = monthDb ? (Number(monthDb.income_pagamento || 0) + Number(monthDb.income_vale || 0) + Number(monthDb.income_ferias || 0) + Number(monthDb.income_decimo_terceiro || 0)) : 0;
-      const desp = mItems.reduce((acc, curr) => acc + (Number(curr.pagamento) || 0) + (Number(curr.vale) || 0), 0);
+      const rec = monthDb
+        ? Number(monthDb.income_pagamento || 0) +
+          Number(monthDb.income_vale || 0) +
+          Number(monthDb.income_ferias || 0) +
+          Number(monthDb.income_decimo_terceiro || 0)
+        : 0;
+
+      const desp = mItems.reduce(
+        (acc, curr) => acc + (Number(curr.pagamento) || 0) + (Number(curr.vale) || 0),
+        0,
+      );
 
       totalInc += rec;
       totalExp += desp;
@@ -240,12 +448,12 @@ export default function App() {
         name: name.substring(0, 3),
         Receitas: rec,
         Despesas: desp,
-        Saldo: rec - desp
+        Saldo: rec - desp,
       };
     });
 
     setYearData(chartData);
-    setAnnualTotals({ income: totalInc, expense: totalExp, balance: totalInc - totalExp } as any);
+    setAnnualTotals({ income: totalInc, expense: totalExp, balance: totalInc - totalExp });
   };
 
   const fetchData = async () => {
@@ -258,25 +466,30 @@ export default function App() {
       .single();
 
     if (!monthData && monthError?.code === 'PGRST116') {
-      const { data: newMonth } = await supabase.from('months').insert({
-        id: currentMonthId,
-        year: currentYear,
-        month_name: MONTH_NAMES[currentMonthIndex],
-      }).select().single();
+      const { data: newMonth } = await supabase
+        .from('months')
+        .insert({
+          id: currentMonthId,
+          year: currentYear,
+          month_name: MONTH_NAMES[currentMonthIndex],
+        })
+        .select()
+        .single();
+
       monthData = newMonth;
+
       setIncome({ pagamento: 0, vale: 0, ferias: 0, decimoTerceiro: 0 });
 
-      // ---- Lógica de Recorrência (Carry-over) ----
-      // Buscar o mês anterior cronologicamente
       let prevMonthIdx = currentMonthIndex - 1;
       let prevYear = currentYear;
+
       if (prevMonthIdx < 0) {
         prevMonthIdx = 11;
         prevYear -= 1;
       }
-      const prevMonthId = `${prevYear}-${(prevMonthIdx + 1).toString().padStart(2, '0')}`;
 
-      // Buscar itens recorrentes do mês anterior
+      const prevMonthId = `${prevYear}-${String(prevMonthIdx + 1).padStart(2, '0')}`;
+
       const { data: recurringItems } = await supabase
         .from('items')
         .select('*')
@@ -286,13 +499,17 @@ export default function App() {
       if (recurringItems && recurringItems.length > 0) {
         for (const item of recurringItems) {
           const newItemId = Math.random().toString(36).substr(2, 9);
-          const { data: insertedItem } = await supabase.from('items').insert({
-            ...item,
-            id: newItemId,
-            month_id: currentMonthId,
-          }).select().single();
 
-          // Se for um cartão, buscar despesas recorrentes dele
+          await supabase
+            .from('items')
+            .insert({
+              ...item,
+              id: newItemId,
+              month_id: currentMonthId,
+            })
+            .select()
+            .single();
+
           if (item.type.startsWith('card_')) {
             const { data: recurringCardExps } = await supabase
               .from('card_expenses')
@@ -305,8 +522,8 @@ export default function App() {
                 recurringCardExps.map(ce => ({
                   ...ce,
                   id: Math.random().toString(36).substr(2, 9),
-                  card_item_id: newItemId
-                }))
+                  card_item_id: newItemId,
+                })),
               );
             }
           }
@@ -328,20 +545,24 @@ export default function App() {
       .order('created_at', { ascending: true });
 
     if (currentItems) {
-      setItems(currentItems);
-      // Buscar despesas de todos os cartões do mês
+      setItems(currentItems as ItemRecord[]);
+
       const cardIds = currentItems.filter(i => i.type.startsWith('card_')).map(i => i.id);
+
       if (cardIds.length > 0) {
         const { data: expenses } = await supabase
           .from('card_expenses')
           .select('*')
           .in('card_item_id', cardIds);
+
         if (expenses) {
           const expMap: { [cardId: string]: CardExpense[] } = {};
+
           expenses.forEach(e => {
             if (!expMap[e.card_item_id]) expMap[e.card_item_id] = [];
-            expMap[e.card_item_id].push(e);
+            expMap[e.card_item_id].push(e as CardExpense);
           });
+
           setCardExpenses(expMap);
         }
       } else {
@@ -358,51 +579,65 @@ export default function App() {
   };
 
   const saveIncome = async () => {
-    await supabase.from('months').update({
-      income_pagamento: income.pagamento,
-      income_vale: income.vale,
-      income_ferias: income.ferias,
-      income_decimo_terceiro: income.decimoTerceiro
-    }).eq('id', currentMonthId);
+    await supabase
+      .from('months')
+      .update({
+        income_pagamento: income.pagamento,
+        income_vale: income.vale,
+        income_ferias: income.ferias,
+        income_decimo_terceiro: income.decimoTerceiro,
+      })
+      .eq('id', currentMonthId);
+
     setEditingIncome(false);
     fetchYearData();
   };
 
   const saveItem = async (item: ItemRecord) => {
-    await supabase.from('items').update({
-      name: item.name,
-      pagamento: item.pagamento,
-      vale: item.vale,
-      type: item.type
-    }).eq('id', item.id);
+    await supabase
+      .from('items')
+      .update({
+        name: item.name,
+        pagamento: item.pagamento,
+        vale: item.vale,
+        type: item.type,
+      })
+      .eq('id', item.id);
+
     setEditingItems(prev => ({ ...prev, [item.id]: false }));
     fetchYearData();
   };
 
   const updateCardSource = async (item: ItemRecord, source: 'pagamento' | 'vale') => {
     const currentAmount = Math.max(Number(item.pagamento) || 0, Number(item.vale) || 0);
+
     const updated = {
       ...item,
       type: `card_${source}`,
       pagamento: source === 'pagamento' ? currentAmount : 0,
-      vale: source === 'vale' ? currentAmount : 0
+      vale: source === 'vale' ? currentAmount : 0,
     };
 
-    setItems(prev => prev.map(i => i.id === item.id ? updated : i));
+    setItems(prev => prev.map(i => (i.id === item.id ? updated : i)));
 
-    await supabase.from('items').update({
-      type: updated.type,
-      pagamento: updated.pagamento,
-      vale: updated.vale
-    }).eq('id', item.id);
-
-    // Propagar mudança de tipo se for recorrente
-    if (item.is_recurring && item.recurring_group_id) {
-      await supabase.from('items').update({
+    await supabase
+      .from('items')
+      .update({
         type: updated.type,
         pagamento: updated.pagamento,
-        vale: updated.vale
-      }).eq('recurring_group_id', item.recurring_group_id)
+        vale: updated.vale,
+      })
+      .eq('id', item.id);
+
+    if (item.is_recurring && item.recurring_group_id) {
+      await supabase
+        .from('items')
+        .update({
+          type: updated.type,
+          pagamento: updated.pagamento,
+          vale: updated.vale,
+        })
+        .eq('recurring_group_id', item.recurring_group_id)
         .gt('month_id', currentMonthId);
     }
 
@@ -413,12 +648,19 @@ export default function App() {
     const isNowRecurring = !item.is_recurring;
     const groupId = item.recurring_group_id || Math.random().toString(36).substr(2, 9);
 
-    setItems(prev => prev.map(i => i.id === item.id ? { ...i, is_recurring: isNowRecurring, recurring_group_id: groupId } : i));
+    setItems(prev =>
+      prev.map(i =>
+        i.id === item.id ? { ...i, is_recurring: isNowRecurring, recurring_group_id: groupId } : i,
+      ),
+    );
 
-    await supabase.from('items').update({
-      is_recurring: isNowRecurring,
-      recurring_group_id: groupId
-    }).eq('id', item.id);
+    await supabase
+      .from('items')
+      .update({
+        is_recurring: isNowRecurring,
+        recurring_group_id: groupId,
+      })
+      .eq('id', item.id);
   };
 
   const addItem = async (type: string) => {
@@ -428,8 +670,9 @@ export default function App() {
       type,
       name: '',
       pagamento: 0,
-      vale: 0
+      vale: 0,
     };
+
     setItems(prev => [...prev, newItem]);
     await supabase.from('items').insert(newItem);
     setEditingItems(prev => ({ ...prev, [newItem.id]: true }));
@@ -440,17 +683,26 @@ export default function App() {
     if (!item) return;
 
     let deleteFuture = false;
+
     if (item.is_recurring && item.recurring_group_id) {
-      deleteFuture = window.confirm('Deseja excluir este item apenas deste mês ou de todos os meses futuros também?\n\n[OK] = Todos os meses futuros\n[Cancelar] = Apenas este mês');
+      deleteFuture = window.confirm(
+        'Deseja excluir este item apenas deste mês ou de todos os meses futuros também?\n\n[OK] = Todos os meses futuros\n[Cancelar] = Apenas este mês',
+      );
     }
 
     setItems(prev => prev.filter(i => i.id !== id));
-    setCardExpenses(prev => { const n = { ...prev }; delete n[id]; return n; });
+    setCardExpenses(prev => {
+      const n = { ...prev };
+      delete n[id];
+      return n;
+    });
 
     await supabase.from('items').delete().eq('id', id);
 
     if (deleteFuture && item.recurring_group_id) {
-      await supabase.from('items').delete()
+      await supabase
+        .from('items')
+        .delete()
         .eq('recurring_group_id', item.recurring_group_id)
         .gt('month_id', currentMonthId);
     }
@@ -458,7 +710,6 @@ export default function App() {
     fetchYearData();
   };
 
-  // ---- Card Expenses ----
   const toggleExpandCard = (cardId: string) => {
     setExpandedCards(prev => ({ ...prev, [cardId]: !prev[cardId] }));
   };
@@ -470,40 +721,42 @@ export default function App() {
       name: '',
       value: 0,
     };
+
     setCardExpenses(prev => ({
       ...prev,
-      [cardItem.id]: [...(prev[cardItem.id] || []), newExp]
+      [cardItem.id]: [...(prev[cardItem.id] || []), newExp],
     }));
+
     setEditingCardExpenses(prev => ({ ...prev, [newExp.id]: true }));
     await supabase.from('card_expenses').insert(newExp);
   };
 
-  const updateCardExpenseLocal = (cardId: string, expId: string, field: string, value: string | number) => {
+  const updateCardExpenseLocal = (
+    cardId: string,
+    expId: string,
+    field: string,
+    value: string | number,
+  ) => {
     setCardExpenses(prev => ({
       ...prev,
-      [cardId]: (prev[cardId] || []).map(e => e.id === expId ? { ...e, [field]: value } : e)
+      [cardId]: (prev[cardId] || []).map(e =>
+        e.id === expId ? { ...e, [field]: value } : e,
+      ),
     }));
   };
 
   const saveCardExpense = async (cardItem: ItemRecord, exp: CardExpense) => {
-    await supabase.from('card_expenses').update({ name: exp.name, value: exp.value }).eq('id', exp.id);
-
-    // Propagar se for recorrente
-    if (exp.is_recurring && exp.recurring_group_id) {
-      await supabase.from('card_expenses').update({
-        name: exp.name,
-        value: exp.value
-      }).eq('recurring_group_id', exp.recurring_group_id)
-        .gt('created_at', exp.id); // Usamos o ID como timestamp aproximado se não tivermos data, mas idealmente seria por mês.
-      // Como card_expenses não tem month_id diretamente (é via card_item_id), a propagação é mais complexa.
-      // Vamos focar no carry-over por enquanto.
-    }
+    await supabase
+      .from('card_expenses')
+      .update({ name: exp.name, value: Number(exp.value) || 0 })
+      .eq('id', exp.id);
 
     setEditingCardExpenses(prev => ({ ...prev, [exp.id]: false }));
     setCardExpenses(prev => ({
       ...prev,
-      [cardItem.id]: (prev[cardItem.id] || []).map(e => e.id === exp.id ? exp : e)
+      [cardItem.id]: (prev[cardItem.id] || []).map(e => (e.id === exp.id ? exp : e)),
     }));
+
     fetchYearData();
   };
 
@@ -512,17 +765,13 @@ export default function App() {
     const exp = expenses.find(e => e.id === expId);
     if (!exp) return;
 
-    let deleteFuture = false;
     if (exp.is_recurring && exp.recurring_group_id) {
-      deleteFuture = window.confirm('Deseja excluir esta compra apenas deste mês ou de todos os meses futuros também?');
+      window.confirm('Deseja excluir esta compra apenas deste mês ou de todos os meses futuros também?');
     }
 
     const remaining = expenses.filter(e => e.id !== expId);
     setCardExpenses(prev => ({ ...prev, [cardItem.id]: remaining }));
     await supabase.from('card_expenses').delete().eq('id', expId);
-
-    // Propagação de exclusão de card_expenses requereria buscar os cards correspondentes nos meses futuros.
-    // Para simplificar esta primeira versão, vamos focar na exclusão do item principal (Cartão).
 
     fetchYearData();
   };
@@ -533,13 +782,18 @@ export default function App() {
 
     setCardExpenses(prev => ({
       ...prev,
-      [cardId]: (prev[cardId] || []).map(e => e.id === exp.id ? { ...e, is_recurring: isNowRecurring, recurring_group_id: groupId } : e)
+      [cardId]: (prev[cardId] || []).map(e =>
+        e.id === exp.id ? { ...e, is_recurring: isNowRecurring, recurring_group_id: groupId } : e,
+      ),
     }));
 
-    await supabase.from('card_expenses').update({
-      is_recurring: isNowRecurring,
-      recurring_group_id: groupId
-    }).eq('id', exp.id);
+    await supabase
+      .from('card_expenses')
+      .update({
+        is_recurring: isNowRecurring,
+        recurring_group_id: groupId,
+      })
+      .eq('id', exp.id);
   };
 
   const updateIncomeLocal = (field: string, value: number) => {
@@ -547,27 +801,40 @@ export default function App() {
   };
 
   const updateItemLocal = (id: string, field: string, value: string | number) => {
-    setItems(prev => prev.map(item => item.id === id ? { ...item, [field]: value } : item));
+    setItems(prev => prev.map(item => (item.id === id ? { ...item, [field]: value } : item)));
   };
 
   const totals = useMemo(() => {
-    const expensesPagamento = items.filter(i => i.type === 'expense_pagamento').reduce((a, c) => a + (Number(c.pagamento) || 0), 0);
-    const expensesVale = items.filter(i => i.type === 'expense_vale').reduce((a, c) => a + (Number(c.vale) || 0), 0);
-    // Base manual do cartão (items.pagamento/vale) + despesas individuais
-    const cardsPagamento = items.filter(i => i.type === 'card_pagamento').reduce((a, c) => {
-      const base = Number(c.pagamento) || 0;
-      const expsSum = (cardExpenses[c.id] || []).reduce((s, e) => s + Number(e.value || 0), 0);
-      return a + base + expsSum;
-    }, 0);
-    const cardsVale = items.filter(i => i.type === 'card_vale').reduce((a, c) => {
-      const base = Number(c.vale) || 0;
-      const expsSum = (cardExpenses[c.id] || []).reduce((s, e) => s + Number(e.value || 0), 0);
-      return a + base + expsSum;
-    }, 0);
+    const expensesPagamento = items
+      .filter(i => i.type === 'expense_pagamento')
+      .reduce((a, c) => a + (Number(c.pagamento) || 0), 0);
 
-    const totalPagamentoIncome = (Number(income.pagamento) || 0) + (Number(income.ferias) || 0) + (Number(income.decimoTerceiro) || 0);
-    const totalValeIncome = (Number(income.vale) || 0);
+    const expensesVale = items
+      .filter(i => i.type === 'expense_vale')
+      .reduce((a, c) => a + (Number(c.vale) || 0), 0);
 
+    const cardsPagamento = items
+      .filter(i => i.type === 'card_pagamento')
+      .reduce((a, c) => {
+        const base = Number(c.pagamento) || 0;
+        const expsSum = (cardExpenses[c.id] || []).reduce((s, e) => s + Number(e.value || 0), 0);
+        return a + base + expsSum;
+      }, 0);
+
+    const cardsVale = items
+      .filter(i => i.type === 'card_vale')
+      .reduce((a, c) => {
+        const base = Number(c.vale) || 0;
+        const expsSum = (cardExpenses[c.id] || []).reduce((s, e) => s + Number(e.value || 0), 0);
+        return a + base + expsSum;
+      }, 0);
+
+    const totalPagamentoIncome =
+      (Number(income.pagamento) || 0) +
+      (Number(income.ferias) || 0) +
+      (Number(income.decimoTerceiro) || 0);
+
+    const totalValeIncome = Number(income.vale) || 0;
     const totalIncome = totalPagamentoIncome + totalValeIncome;
 
     const totalDespesasPagamento = expensesPagamento + cardsPagamento;
@@ -575,7 +842,6 @@ export default function App() {
     const totalExpenses = totalDespesasPagamento + totalDespesasVale;
 
     const totalRemaining = totalIncome - totalExpenses;
-
     const remainingPagamento = totalPagamentoIncome - totalDespesasPagamento;
     const remainingVale = totalValeIncome - totalDespesasVale;
 
@@ -588,14 +854,13 @@ export default function App() {
       totalPagamentoIncome,
       totalValeIncome,
       remainingPagamento,
-      remainingVale
+      remainingVale,
     };
   }, [income, items, cardExpenses]);
 
   const pieChartData = useMemo(() => {
     const expenses = items.filter(i => i.type.startsWith('expense_') || i.type.startsWith('card_'));
 
-    // Agrupar gastos com o mesmo nome; para cartões, soma base + despesas individuais
     const grouped = expenses.reduce((acc, curr) => {
       const name = curr.name?.trim() || 'Sem nome';
       const base = (Number(curr.pagamento) || 0) + (Number(curr.vale) || 0);
@@ -603,26 +868,32 @@ export default function App() {
         ? (cardExpenses[curr.id] || []).reduce((s, e) => s + Number(e.value || 0), 0)
         : 0;
       const totalVal = base + expsSum;
+
       if (totalVal > 0) {
         acc[name] = (acc[name] || 0) + totalVal;
       }
+
       return acc;
     }, {} as Record<string, number>);
 
-    // Mostrar TODOS os itens ordenados por valor (sem "Outros")
     return Object.entries(grouped)
-      .map(([name, value]) => ({ name, value: value as number }))
+      .map(([name, value]) => ({ name, value }))
       .sort((a, b) => b.value - a.value);
   }, [items, cardExpenses]);
 
   if (authLoading) {
-    return <div className="min-h-screen bg-[#0f1115] flex items-center justify-center"><Loader2 className="w-10 h-10 animate-spin text-emerald-500" /></div>;
+    return (
+      <div className="min-h-screen bg-[#0f1115] flex items-center justify-center">
+        <Loader2 className="w-10 h-10 animate-spin text-emerald-500" />
+      </div>
+    );
   }
 
   if (!session) {
     return (
       <div className="min-h-screen bg-[#0f1115] flex items-center justify-center p-4 relative overflow-hidden">
         <div className="fixed top-[-10%] left-[-10%] w-[40%] h-[40%] rounded-full bg-emerald-600/20 blur-[120px] pointer-events-none" />
+
         <div className="bg-white/5 backdrop-blur-xl border border-white/10 p-8 rounded-3xl w-full max-w-md shadow-2xl relative z-10">
           <div className="flex flex-col items-center mb-8">
             <img src="/Logo.png" alt="ZimFinance" className="w-20 h-20 object-contain mb-4 drop-shadow-2xl" />
@@ -631,9 +902,16 @@ export default function App() {
           </div>
 
           <form onSubmit={handleLogin} className="space-y-5">
-            {authError && <div className="bg-rose-500/20 text-rose-400 p-3 rounded-xl text-sm text-center border border-rose-500/30">{authError}</div>}
+            {authError && (
+              <div className="bg-rose-500/20 text-rose-400 p-3 rounded-xl text-sm text-center border border-rose-500/30">
+                {authError}
+              </div>
+            )}
+
             <div>
-              <label className="block text-xs font-bold text-white/40 uppercase tracking-widest mb-2">E-mail</label>
+              <label className="block text-xs font-bold text-white/40 uppercase tracking-widest mb-2">
+                E-mail
+              </label>
               <input
                 type="email"
                 value={email}
@@ -642,8 +920,11 @@ export default function App() {
                 required
               />
             </div>
+
             <div>
-              <label className="block text-xs font-bold text-white/40 uppercase tracking-widest mb-2">Senha</label>
+              <label className="block text-xs font-bold text-white/40 uppercase tracking-widest mb-2">
+                Senha
+              </label>
               <input
                 type="password"
                 value={password}
@@ -652,24 +933,27 @@ export default function App() {
                 required
               />
             </div>
-            <button type="submit" className="w-full bg-gradient-to-r from-emerald-500 to-emerald-600 text-white font-bold py-3.5 rounded-xl hover:from-emerald-400 hover:to-emerald-500 transition-all shadow-lg shadow-emerald-500/25 active:scale-95">
+
+            <button
+              type="submit"
+              disabled={authLoading}
+              className="w-full bg-gradient-to-r from-emerald-500 to-emerald-600 text-white font-bold py-3.5 rounded-xl hover:from-emerald-400 hover:to-emerald-500 transition-all shadow-lg shadow-emerald-500/25 active:scale-95 disabled:opacity-60 flex items-center justify-center gap-2"
+            >
+              {authLoading && <Loader2 className="w-4 h-4 animate-spin" />}
               Entrar
             </button>
           </form>
         </div>
       </div>
-    </div>
-  );
-}
+    );
+  }
 
-return (
+  return (
     <div className="flex h-screen bg-[#0f1115] text-white font-sans overflow-hidden selection:bg-emerald-500/30">
-      {/* Mobile Sidebar Overlay */}
       {sidebarOpen && (
         <div className="fixed inset-0 bg-black/60 z-[60] lg:hidden" onClick={() => setSidebarOpen(false)} />
       )}
 
-      {/* Sidebar - hidden on mobile, slide-in when open */}
       <aside className={`fixed lg:relative w-64 bg-[#0f1115]/95 backdrop-blur-2xl border-r border-white/10 flex flex-col z-[70] h-full transition-transform duration-300 ease-in-out ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'} lg:translate-x-0`}>
         <div className="h-16 lg:h-24 flex items-center justify-between px-6 lg:px-8 border-b border-white/5">
           <div className="flex items-center">
@@ -685,22 +969,34 @@ return (
 
         <nav className="flex-1 px-4 py-6 lg:py-8 space-y-2">
           <button
-            onClick={() => { setActiveView('dashboard'); setSidebarOpen(false); }}
+            onClick={() => {
+              setActiveView('dashboard');
+              setSidebarOpen(false);
+            }}
             className={`w-full flex items-center px-4 py-3.5 rounded-2xl font-bold transition-all ${activeView === 'dashboard' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'text-white/50 hover:text-white hover:bg-white/5 border border-transparent'}`}
           >
             <LayoutDashboard className="w-5 h-5 mr-3" />
             Dashboard
           </button>
+
           <button
-            onClick={() => { setActiveView('lancamentos'); setSidebarOpen(false); }}
+            onClick={() => {
+              setActiveView('lancamentos');
+              setSidebarOpen(false);
+            }}
             className={`w-full flex items-center px-4 py-3.5 rounded-2xl font-bold transition-all ${activeView === 'lancamentos' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'text-white/50 hover:text-white hover:bg-white/5 border border-transparent'}`}
           >
             <Receipt className="w-5 h-5 mr-3" />
             Lançamentos
           </button>
+
           {userProfile?.role === 'admin' && (
             <button
-              onClick={() => { setActiveView('settings'); setSidebarOpen(false); loadAdminUsers(); }}
+              onClick={() => {
+                setActiveView('settings');
+                setSidebarOpen(false);
+                loadAdminUsers();
+              }}
               className={`w-full flex items-center px-4 py-3.5 rounded-2xl font-bold transition-all ${activeView === 'settings' ? 'bg-violet-500/10 text-violet-400 border border-violet-500/20' : 'text-white/50 hover:text-white hover:bg-white/5 border border-transparent'}`}
             >
               <Settings className="w-5 h-5 mr-3" />
@@ -712,7 +1008,7 @@ return (
         <div className="p-4 border-t border-white/5">
           <div className="flex items-center justify-between bg-black/20 p-3 rounded-2xl border border-white/5">
             <div className="flex items-center overflow-hidden">
-              <div className="w-2 h-2 rounded-full bg-emerald-500 mr-2 flex-shrink-0"></div>
+              <div className="w-2 h-2 rounded-full bg-emerald-500 mr-2 flex-shrink-0" />
               <span className="text-xs text-white/50 truncate pr-2">{session.user.email}</span>
             </div>
             <button onClick={handleLogout} className="p-2 bg-white/5 hover:bg-rose-500/20 hover:text-rose-400 rounded-xl text-white/70 transition-colors">
@@ -722,12 +1018,10 @@ return (
         </div>
       </aside>
 
-      {/* Main Content Area */}
       <main className="flex-1 flex flex-col relative overflow-hidden">
         <div className="fixed top-[-10%] left-[-10%] w-[40%] h-[40%] rounded-full bg-emerald-600/20 blur-[120px] pointer-events-none" />
         <div className="fixed bottom-[10%] right-[-10%] w-[40%] h-[40%] rounded-full bg-indigo-600/20 blur-[120px] pointer-events-none" />
 
-        {/* Top Header */}
         <header className="h-14 lg:h-16 px-3 lg:px-8 border-b border-white/10 flex items-center justify-between bg-white/5 backdrop-blur-xl z-40">
           <div className="flex items-center gap-2">
             <button onClick={() => setSidebarOpen(true)} className="p-2 text-white/50 hover:text-white hover:bg-white/10 rounded-xl transition-all lg:hidden">
@@ -740,31 +1034,51 @@ return (
 
           <div className="flex items-center gap-2">
             <div className="flex items-center gap-1 bg-black/40 px-1.5 py-1 rounded-xl border border-white/10 relative">
-              <button onClick={() => setCurrentYear(y => y - 1)} className="p-1.5 text-white/40 hover:text-white hover:bg-white/10 rounded-lg transition-colors"><ChevronLeft className="w-3.5 h-3.5" /></button>
+              <button onClick={() => setCurrentYear(y => y - 1)} className="p-1.5 text-white/40 hover:text-white hover:bg-white/10 rounded-lg transition-colors">
+                <ChevronLeft className="w-3.5 h-3.5" />
+              </button>
               <span className="w-10 text-center font-bold text-emerald-400 font-mono text-xs">{currentYear}</span>
-              <button onClick={() => setCurrentYear(y => y + 1)} className="p-1.5 text-white/40 hover:text-white hover:bg-white/10 rounded-lg transition-colors"><ChevronRight className="w-3.5 h-3.5" /></button>
+              <button onClick={() => setCurrentYear(y => y + 1)} className="p-1.5 text-white/40 hover:text-white hover:bg-white/10 rounded-lg transition-colors">
+                <ChevronRight className="w-3.5 h-3.5" />
+              </button>
 
-              <div className="w-px h-5 bg-white/10 mx-0.5"></div>
+              <div className="w-px h-5 bg-white/10 mx-0.5" />
 
-              <button onClick={() => {
-                if (currentMonthIndex === 0) { setCurrentMonthIndex(11); setCurrentYear(y => y - 1); }
-                else { setCurrentMonthIndex(m => m - 1); }
-              }} className="p-1.5 text-white/40 hover:text-white hover:bg-white/10 rounded-lg transition-colors"><ChevronLeft className="w-3.5 h-3.5" /></button>
+              <button
+                onClick={() => {
+                  if (currentMonthIndex === 0) {
+                    setCurrentMonthIndex(11);
+                    setCurrentYear(y => y - 1);
+                  } else {
+                    setCurrentMonthIndex(m => m - 1);
+                  }
+                }}
+                className="p-1.5 text-white/40 hover:text-white hover:bg-white/10 rounded-lg transition-colors"
+              >
+                <ChevronLeft className="w-3.5 h-3.5" />
+              </button>
+
               <button
                 onClick={() => setShowMonthPicker(p => !p)}
-                className={`px-3 py-1 text-xs font-bold rounded-lg transition-all cursor-pointer ${currentMonthIndex === realCurrentMonth && currentYear === realCurrentYear
-                  ? 'text-emerald-400 bg-emerald-500/15'
-                  : 'text-white/80 hover:bg-white/10'
-                  }`}
+                className={`px-3 py-1 text-xs font-bold rounded-lg transition-all cursor-pointer ${currentMonthIndex === realCurrentMonth && currentYear === realCurrentYear ? 'text-emerald-400 bg-emerald-500/15' : 'text-white/80 hover:bg-white/10'}`}
               >
                 {MONTH_NAMES[currentMonthIndex].substring(0, 3)}
               </button>
-              <button onClick={() => {
-                if (currentMonthIndex === 11) { setCurrentMonthIndex(0); setCurrentYear(y => y + 1); }
-                else { setCurrentMonthIndex(m => m + 1); }
-              }} className="p-1.5 text-white/40 hover:text-white hover:bg-white/10 rounded-lg transition-colors"><ChevronRight className="w-3.5 h-3.5" /></button>
 
-              {/* Month Picker Grid */}
+              <button
+                onClick={() => {
+                  if (currentMonthIndex === 11) {
+                    setCurrentMonthIndex(0);
+                    setCurrentYear(y => y + 1);
+                  } else {
+                    setCurrentMonthIndex(m => m + 1);
+                  }
+                }}
+                className="p-1.5 text-white/40 hover:text-white hover:bg-white/10 rounded-lg transition-colors"
+              >
+                <ChevronRight className="w-3.5 h-3.5" />
+              </button>
+
               {showMonthPicker && (
                 <>
                   <div className="fixed inset-0 z-40" onClick={() => setShowMonthPicker(false)} />
@@ -773,703 +1087,791 @@ return (
                       {MONTH_NAMES.map((m, idx) => {
                         const isActive = idx === currentMonthIndex;
                         const isCurrent = idx === realCurrentMonth && currentYear === realCurrentYear;
+
                         return (
                           <button
                             key={m}
-                            onClick={() => { setCurrentMonthIndex(idx); setShowMonthPicker(false); }}
-                            className={`px-2 py-2 rounded-xl text-xs font-bold transition-all ${isActive
-                              ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/25'
-                              : isCurrent
-                                ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
-                                : 'text-white/60 hover:bg-white/10 hover:text-white'
-                              }`}
-                        </button>
-                    );
-                    })}
+                            onClick={() => {
+                              setCurrentMonthIndex(idx);
+                              setShowMonthPicker(false);
+                            }}
+                            className={`px-2 py-2 rounded-xl text-xs font-bold transition-all ${isActive ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/25' : isCurrent ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30' : 'text-white/60 hover:bg-white/10 hover:text-white'}`}
+                          >
+                            {m.substring(0, 3)}
+                          </button>
+                        );
+                      })}
+                    </div>
                   </div>
-                </div>
-            </>
-            })}
-          </div>
-          {/* Notification Bell */}
-          <div className="relative">
-            <button
-              onClick={() => setShowNotifications(p => !p)}
-              className="p-2 text-white/50 hover:text-white hover:bg-white/10 rounded-xl transition-all relative"
-            >
-              <Bell className="w-5 h-5" />
-              {notifications.length > 0 && (
-                <span className="absolute -top-0.5 -right-0.5 w-4 h-4 bg-rose-500 rounded-full text-[9px] font-bold flex items-center justify-center">{notifications.length}</span>
+                </>
               )}
-            </button>
-            {showNotifications && (
-              <>
-                <div className="fixed inset-0 z-40" onClick={() => setShowNotifications(false)} />
-                <div className="absolute right-0 top-full mt-2 z-50 w-80 bg-[#1a1d23] border border-white/10 rounded-2xl shadow-2xl overflow-hidden">
-                  <div className="px-4 py-3 border-b border-white/10 flex items-center gap-2">
-                    <Bell className="w-4 h-4 text-emerald-400" />
-                    <span className="font-bold text-sm">Notificações</span>
-                  </div>
-                  {notifications.length === 0 ? (
-                    <div className="px-4 py-8 text-center text-white/30 text-sm">Nenhuma notificação pendente</div>
-                  ) : (
-                    <div className="max-h-80 overflow-y-auto divide-y divide-white/5">
-                      {notifications.map(n => (
-                        <div key={n.id} className="p-4">
-                          <p className="text-xs text-white/50 mb-1">{n.from_user_email}</p>
-                          <p className="font-bold text-sm text-white mb-0.5">{n.expense_name}</p>
-                          <div className="flex items-center gap-2 text-xs mb-3">
-                            <span className="text-white/50">Sua parte:</span>
-                            <span className="text-emerald-400 font-mono font-bold">{formatCurrency(n.share_value)}</span>
-                            <span className="text-white/30">de {formatCurrency(n.expense_value)}</span>
-                          </div>
-                          <div className="flex gap-2">
-                            <button onClick={() => respondToShare(n, true)} className="flex-1 flex items-center justify-center gap-1 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-400 text-xs font-bold py-2 rounded-xl transition-all">
-                              <CheckCircle className="w-3.5 h-3.5" /> Aceitar
-                            </button>
-                            <button onClick={() => respondToShare(n, false)} className="flex-1 flex items-center justify-center gap-1 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 text-xs font-bold py-2 rounded-xl transition-all">
-                              <XCircle className="w-3.5 h-3.5" /> Recusar
-                            </button>
-                          </div>
-                        </div>
-                      )))}
-                    </div>
-                  )}
-                </div>
-              </>
-            )}
-          </div>
-        </div>
-      </header>
-
-      {activeView !== 'settings' && (
-        <div className="flex-1 overflow-y-auto p-3 lg:p-6 pb-20 lg:pb-6 relative z-10 custom-scrollbar">
-          {loading ? (
-            <div className="flex flex-col items-center justify-center h-full">
-              <Loader2 className="w-8 h-8 animate-spin text-emerald-500" />
             </div>
-          ) : (
-            <div className="space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-500 max-w-[1600px] mx-auto">
 
-              <div className="grid grid-cols-2 lg:grid-cols-5 gap-2 lg:gap-3">
-                {[
-                  { label: 'Receita Mensal', value: totals.totalIncome, icon: TrendingUp, color: 'emerald', sub: null },
-                  { label: 'Gastos Mensal', value: totals.totalExpenses, icon: TrendingDown, color: 'rose', sub: null },
-                  { label: 'Saldo Pgto', value: totals.remainingPagamento, icon: DollarSign, color: totals.remainingPagamento >= 0 ? 'emerald' : 'rose', sub: `Rec: ${formatCurrency(totals.totalPagamentoIncome)}` },
-                  { label: 'Saldo Adto', value: totals.remainingVale, icon: Wallet, color: totals.remainingVale >= 0 ? 'indigo' : 'rose', sub: `Rec: ${formatCurrency(totals.totalValeIncome)}` },
-                  { label: 'Saldo Total', value: totals.totalRemaining, icon: DollarSign, color: totals.totalRemaining >= 0 ? 'emerald' : 'rose', sub: null },
-                ].map((card, idx) => {
-                  const Icon = card.icon;
-                  const colorMap: Record<string, string> = {
-                    emerald: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20',
-                    rose: 'text-rose-400 bg-rose-500/10 border-rose-500/20',
-                    indigo: 'text-indigo-400 bg-indigo-500/10 border-indigo-500/20',
-                  };
-                  const colors = colorMap[card.color] || colorMap.emerald;
-                  const textColor = card.color === 'rose' ? 'text-rose-400' : card.color === 'indigo' ? 'text-indigo-400' : 'text-emerald-400';
-                  return (
-                    <div key={idx} className={`${idx === 4 ? 'col-span-2 lg:col-span-1' : ''} bg-white/5 backdrop-blur-xl rounded-xl lg:rounded-2xl border border-white/10 p-3 lg:p-4 hover:border-white/20 transition-all group`}>
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="text-[10px] font-bold text-white/40 uppercase tracking-widest">{card.label}</span>
-                        <div className={`p-1.5 rounded-lg border ${colors}`}>
-                          <Icon className="w-3 h-3" />
-                        </div>
+            <div className="relative">
+              <button
+                onClick={() => setShowNotifications(p => !p)}
+                className="p-2 text-white/50 hover:text-white hover:bg-white/10 rounded-xl transition-all relative"
+              >
+                <Bell className="w-5 h-5" />
+                {notifications.length > 0 && (
+                  <span className="absolute -top-0.5 -right-0.5 w-4 h-4 bg-rose-500 rounded-full text-[9px] font-bold flex items-center justify-center">
+                    {notifications.length}
+                  </span>
+                )}
+              </button>
+
+              {showNotifications && (
+                <>
+                  <div className="fixed inset-0 z-40" onClick={() => setShowNotifications(false)} />
+                  <div className="absolute right-0 top-full mt-2 z-50 w-80 bg-[#1a1d23] border border-white/10 rounded-2xl shadow-2xl overflow-hidden">
+                    <div className="px-4 py-3 border-b border-white/10 flex items-center gap-2">
+                      <Bell className="w-4 h-4 text-emerald-400" />
+                      <span className="font-bold text-sm">Notificações</span>
+                    </div>
+
+                    {notifications.length === 0 ? (
+                      <div className="px-4 py-8 text-center text-white/30 text-sm">Nenhuma notificação pendente</div>
+                    ) : (
+                      <div className="max-h-80 overflow-y-auto divide-y divide-white/5">
+                        {notifications.map(n => (
+                          <div key={n.id} className="p-4">
+                            <p className="text-xs text-white/50 mb-1">{n.from_user_email}</p>
+                            <p className="font-bold text-sm text-white mb-0.5">{n.expense_name}</p>
+                            <div className="flex items-center gap-2 text-xs mb-3">
+                              <span className="text-white/50">Sua parte:</span>
+                              <span className="text-emerald-400 font-mono font-bold">{formatCurrency(n.share_value)}</span>
+                              <span className="text-white/30">de {formatCurrency(n.expense_value)}</span>
+                            </div>
+                            <div className="flex gap-2">
+                              <button onClick={() => respondToShare(n, true)} className="flex-1 flex items-center justify-center gap-1 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-400 text-xs font-bold py-2 rounded-xl transition-all">
+                                <CheckCircle className="w-3.5 h-3.5" /> Aceitar
+                              </button>
+                              <button onClick={() => respondToShare(n, false)} className="flex-1 flex items-center justify-center gap-1 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 text-xs font-bold py-2 rounded-xl transition-all">
+                                <XCircle className="w-3.5 h-3.5" /> Recusar
+                              </button>
+                            </div>
+                          </div>
+                        ))}
                       </div>
-                      <p className={`text-base lg:text-xl font-extrabold font-mono tracking-tight ${textColor}`}>{formatCurrency(card.value)}</p>
-                      {card.sub && <p className="text-[10px] text-white/30 font-mono mt-1">{card.sub}</p>}
-                    </div>
-                  );
-                ))}
-              </div>
-
-              {activeView === 'dashboard' ? (
-                <div className="space-y-4">
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 lg:gap-3">
-                    <div className="bg-emerald-500/5 border border-emerald-500/15 rounded-xl px-3 lg:px-4 py-2.5 lg:py-3 flex items-center justify-between">
-                      <span className="text-[9px] lg:text-[10px] font-bold text-white/40 uppercase tracking-widest">Receita Anual</span>
-                      <span className="text-xs lg:text-sm font-mono font-bold text-emerald-400">{formatCurrency(annualTotals.income)}</span>
-                    </div>
-                    <div className="bg-rose-500/5 border border-rose-500/15 rounded-xl px-3 lg:px-4 py-2.5 lg:py-3 flex items-center justify-between">
-                      <span className="text-[9px] lg:text-[10px] font-bold text-white/40 uppercase tracking-widest">Gasto Anual</span>
-                      <span className="text-xs lg:text-sm font-mono font-bold text-rose-400">{formatCurrency(annualTotals.expense)}</span>
-                    </div>
-                    <div className={`${(annualTotals as any).balance >= 0 ? 'bg-emerald-500/10 border-emerald-500/20' : 'bg-rose-500/10 border-rose-500/20'} border rounded-xl px-3 lg:px-4 py-2.5 lg:py-3 flex items-center justify-between`}>
-                      <span className="text-[9px] lg:text-[10px] font-bold text-white/40 uppercase tracking-widest">Projeção Anual</span>
-                      <span className={`text-xs lg:text-sm font-mono font-bold ${(annualTotals as any).balance >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{formatCurrency((annualTotals as any).balance || 0)}</span>
-                    </div>
+                    )}
                   </div>
+                </>
+              )}
+            </div>
+          </div>
+        </header>
 
-                  <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
-                    <div className="xl:col-span-2 bg-white/5 backdrop-blur-xl p-5 rounded-2xl border border-white/10 flex flex-col shadow-xl">
-                      <h3 className="text-sm font-bold text-white/70 mb-4 flex items-center gap-2">
-                        <TrendingUp className="w-4 h-4 text-indigo-400" />
-                        Visão Anual ({currentYear})
-                      </h3>
-                      <div className="flex-1 w-full min-h-[260px]">
-                        <ResponsiveContainer width="100%" height="100%">
-                          <BarChart data={yearData} margin={{ top: 5, right: 5, left: -25, bottom: 0 }}>
-                            <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
-                            <XAxis dataKey="name" stroke="rgba(255,255,255,0.3)" fontSize={11} tickLine={false} axisLine={false} />
-                            <YAxis stroke="rgba(255,255,255,0.3)" fontSize={10} tickFormatter={(val) => `${val / 1000}k`} tickLine={false} axisLine={false} />
-                            <Tooltip cursor={{ fill: 'rgba(255,255,255,0.05)' }} contentStyle={{ backgroundColor: '#0f1115', borderColor: 'rgba(255,255,255,0.1)', borderRadius: '12px', color: '#fff', fontSize: '12px' }} />
-                            <Legend iconType="circle" wrapperStyle={{ fontSize: '11px', paddingTop: '8px' }} />
-                            <Bar dataKey="Receitas" fill="#10b981" radius={[3, 3, 0, 0]} maxBarSize={32} />
-                            <Bar dataKey="Despesas" fill="#f43f5e" radius={[3, 3, 0, 0]} maxBarSize={32} />
-                          </BarChart>
-                        </ResponsiveContainer>
+        {activeView !== 'settings' && (
+          <div className="flex-1 overflow-y-auto p-3 lg:p-6 pb-20 lg:pb-6 relative z-10 custom-scrollbar">
+            {loading ? (
+              <div className="flex flex-col items-center justify-center h-full">
+                <Loader2 className="w-8 h-8 animate-spin text-emerald-500" />
+              </div>
+            ) : (
+              <div className="space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-500 max-w-[1600px] mx-auto">
+                <div className="grid grid-cols-2 lg:grid-cols-5 gap-2 lg:gap-3">
+                  {[
+                    { label: 'Receita Mensal', value: totals.totalIncome, icon: TrendingUp, color: 'emerald', sub: null },
+                    { label: 'Gastos Mensal', value: totals.totalExpenses, icon: TrendingDown, color: 'rose', sub: null },
+                    { label: 'Saldo Pgto', value: totals.remainingPagamento, icon: DollarSign, color: totals.remainingPagamento >= 0 ? 'emerald' : 'rose', sub: `Rec: ${formatCurrency(totals.totalPagamentoIncome)}` },
+                    { label: 'Saldo Adto', value: totals.remainingVale, icon: Wallet, color: totals.remainingVale >= 0 ? 'indigo' : 'rose', sub: `Rec: ${formatCurrency(totals.totalValeIncome)}` },
+                    { label: 'Saldo Total', value: totals.totalRemaining, icon: DollarSign, color: totals.totalRemaining >= 0 ? 'emerald' : 'rose', sub: null },
+                  ].map((card, idx) => {
+                    const Icon = card.icon;
+                    const colorMap: Record<string, string> = {
+                      emerald: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20',
+                      rose: 'text-rose-400 bg-rose-500/10 border-rose-500/20',
+                      indigo: 'text-indigo-400 bg-indigo-500/10 border-indigo-500/20',
+                    };
+                    const colors = colorMap[card.color] || colorMap.emerald;
+                    const textColor = card.color === 'rose' ? 'text-rose-400' : card.color === 'indigo' ? 'text-indigo-400' : 'text-emerald-400';
+
+                    return (
+                      <div key={idx} className={`${idx === 4 ? 'col-span-2 lg:col-span-1' : ''} bg-white/5 backdrop-blur-xl rounded-xl lg:rounded-2xl border border-white/10 p-3 lg:p-4 hover:border-white/20 transition-all group`}>
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-[10px] font-bold text-white/40 uppercase tracking-widest">{card.label}</span>
+                          <div className={`p-1.5 rounded-lg border ${colors}`}>
+                            <Icon className="w-3 h-3" />
+                          </div>
+                        </div>
+                        <p className={`text-base lg:text-xl font-extrabold font-mono tracking-tight ${textColor}`}>{formatCurrency(card.value)}</p>
+                        {card.sub && <p className="text-[10px] text-white/30 font-mono mt-1">{card.sub}</p>}
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {activeView === 'dashboard' ? (
+                  <div className="space-y-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 lg:gap-3">
+                      <div className="bg-emerald-500/5 border border-emerald-500/15 rounded-xl px-3 lg:px-4 py-2.5 lg:py-3 flex items-center justify-between">
+                        <span className="text-[9px] lg:text-[10px] font-bold text-white/40 uppercase tracking-widest">Receita Anual</span>
+                        <span className="text-xs lg:text-sm font-mono font-bold text-emerald-400">{formatCurrency(annualTotals.income)}</span>
+                      </div>
+                      <div className="bg-rose-500/5 border border-rose-500/15 rounded-xl px-3 lg:px-4 py-2.5 lg:py-3 flex items-center justify-between">
+                        <span className="text-[9px] lg:text-[10px] font-bold text-white/40 uppercase tracking-widest">Gasto Anual</span>
+                        <span className="text-xs lg:text-sm font-mono font-bold text-rose-400">{formatCurrency(annualTotals.expense)}</span>
+                      </div>
+                      <div className={`${annualTotals.balance >= 0 ? 'bg-emerald-500/10 border-emerald-500/20' : 'bg-rose-500/10 border-rose-500/20'} border rounded-xl px-3 lg:px-4 py-2.5 lg:py-3 flex items-center justify-between`}>
+                        <span className="text-[9px] lg:text-[10px] font-bold text-white/40 uppercase tracking-widest">Projeção Anual</span>
+                        <span className={`text-xs lg:text-sm font-mono font-bold ${annualTotals.balance >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{formatCurrency(annualTotals.balance || 0)}</span>
                       </div>
                     </div>
 
-                    <div className="xl:col-span-1 bg-white/5 backdrop-blur-xl p-5 rounded-2xl border border-white/10 flex flex-col shadow-xl">
-                      <h3 className="text-sm font-bold text-white/70 mb-4 flex items-center gap-2">
-                        <PieChartIcon className="w-4 h-4 text-emerald-400" />
-                        Maiores Gastos
-                      </h3>
-                      {pieChartData.length > 0 ? (
-                        <div className="flex-1 w-full min-h-[300px]">
+                    <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
+                      <div className="xl:col-span-2 bg-white/5 backdrop-blur-xl p-5 rounded-2xl border border-white/10 flex flex-col shadow-xl">
+                        <h3 className="text-sm font-bold text-white/70 mb-4 flex items-center gap-2">
+                          <TrendingUp className="w-4 h-4 text-indigo-400" />
+                          Visão Anual ({currentYear})
+                        </h3>
+                        <div className="flex-1 w-full min-h-[260px]">
                           <ResponsiveContainer width="100%" height="100%">
-                            <PieChart>
-                              <Pie data={pieChartData} cx="50%" cy="50%" innerRadius={60} outerRadius={100} paddingAngle={5} dataKey="value" stroke="none">
-                                {pieChartData.map((entry, index) => (
-                                  <Cell key={`cell-${index}`} fill={PIE_COLORS[index % PIE_COLORS.length]} />
-                                ))}
-                              </Pie>
-                              <Tooltip contentStyle={{ backgroundColor: '#0f1115', borderColor: 'rgba(255,255,255,0.1)', borderRadius: '16px', color: '#fff' }} formatter={(val: number) => formatCurrency(val)} />
-                              <Legend layout="horizontal" verticalAlign="bottom" align="center" wrapperStyle={{ fontSize: '11px', color: 'white' }} />
-                            </PieChart>
+                            <BarChart data={yearData} margin={{ top: 5, right: 5, left: -25, bottom: 0 }}>
+                              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
+                              <XAxis dataKey="name" stroke="rgba(255,255,255,0.3)" fontSize={11} tickLine={false} axisLine={false} />
+                              <YAxis stroke="rgba(255,255,255,0.3)" fontSize={10} tickFormatter={(val) => `${Number(val) / 1000}k`} tickLine={false} axisLine={false} />
+                              <Tooltip cursor={{ fill: 'rgba(255,255,255,0.05)' }} contentStyle={{ backgroundColor: '#0f1115', borderColor: 'rgba(255,255,255,0.1)', borderRadius: '12px', color: '#fff', fontSize: '12px' }} />
+                              <Legend iconType="circle" wrapperStyle={{ fontSize: '11px', paddingTop: '8px' }} />
+                              <Bar dataKey="Receitas" fill="#10b981" radius={[3, 3, 0, 0]} maxBarSize={32} />
+                              <Bar dataKey="Despesas" fill="#f43f5e" radius={[3, 3, 0, 0]} maxBarSize={32} />
+                            </BarChart>
                           </ResponsiveContainer>
                         </div>
-                      ) : (
-                        <div className="flex-1 flex flex-col items-center justify-center text-white/40">
-                          <PieChartIcon className="w-12 h-12 mb-3 opacity-20" />
-                          <p className="text-sm">Nenhum gasto registrado.</p>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  <div className="bg-white/5 backdrop-blur-xl rounded-2xl border border-white/10 overflow-hidden">
-                    <div className="flex items-center justify-between px-4 py-2.5 border-b border-white/5">
-                      <span className="text-[10px] font-bold text-white/40 uppercase tracking-widest flex items-center gap-1.5">
-                        <TrendingUp className="w-3 h-3 text-emerald-400" /> Receitas
-                      </span>
-                      {editingIncome ? (
-                        <button onClick={saveIncome} className="flex items-center gap-1 text-emerald-400 bg-emerald-500/20 hover:bg-emerald-500/30 px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all">
-                          <Check className="w-3 h-3" /> Salvar
-                        </button>
-                      ) : (
-                        <button onClick={() => setEditingIncome(true)} className="flex items-center gap-1 text-white/30 hover:text-white bg-white/5 hover:bg-white/10 px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all">
-                          <Edit2 className="w-3 h-3" /> Editar
-                        </button>
-                      )}
-                    </div>
-                    <div className="px-4 py-2.5 flex flex-wrap gap-2">
-                      {[
-                        { label: "Pagamento", field: "pagamento", color: "emerald" },
-                        { label: "Adiantamento", field: "vale", color: "indigo" },
-                        { label: "Férias", field: "ferias", color: "emerald" },
-                        ...(currentMonthIndex === 10 || currentMonthIndex === 11 ? [{ label: "13º Salário", field: "decimoTerceiro", color: "emerald" }] : []),
-                      ].map((inputMap) => (
-                        <div key={inputMap.field} className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border transition-all text-xs ${editingIncome ? 'border-emerald-500/30 bg-emerald-500/5' : 'border-white/5 bg-black/20'}`}>
-                          <span className={`text-[9px] font-bold uppercase tracking-wider ${inputMap.color === 'indigo' ? 'text-indigo-400' : 'text-emerald-400'}`}>{inputMap.label}</span>
-                          <span className="text-white/20">R$</span>
-                          <input
-                            type="number"
-                            className="bg-transparent text-xs text-white font-mono font-bold outline-none w-20 placeholder-white/10"
-                            value={income[inputMap.field as keyof typeof income] || ''}
-                            onChange={(e) => updateIncomeLocal(inputMap.field, Number(e.target.value))}
-                            readOnly={!editingIncome}
-                            onWheel={(e) => (e.target as HTMLElement).blur()}
-                            placeholder="0"
-                          />
-                          {!editingIncome && <Lock className="w-2.5 h-2.5 text-white/15" />}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-                    {/* Contas Pagamento */}
-                    <div className="bg-white/5 backdrop-blur-xl rounded-2xl border border-white/10 overflow-hidden shadow-xl flex flex-col">
-                      <div className="px-4 py-3 border-b border-white/5 flex justify-between items-center bg-emerald-500/5">
-                        <span className="text-xs font-bold text-emerald-400 flex items-center gap-1.5">
-                          <TrendingDown className="w-3.5 h-3.5" /> Pagamento
-                        </span>
-                        <button onClick={() => addItem('expense_pagamento')} className="p-1 text-white/40 hover:text-white hover:bg-white/10 rounded-lg transition-all">
-                          <Plus className="w-3.5 h-3.5" />
-                        </button>
                       </div>
-                      <div className="divide-y divide-white/5 flex-1">
-                        {items.filter(i => i.type === 'expense_pagamento').map(item => {
-                          const isEdit = editingItems[item.id];
-                          return (
-                            <div key={item.id} className={`flex flex-col transition-all group ${isEdit ? 'bg-emerald-500/5' : 'hover:bg-white/3'} ${sentShares.some(s => s.source_item_id === item.id) ? 'border-l-2 border-indigo-500' : ''}`}>
-                              {sentShares.filter(s => s.source_item_id === item.id).map(s => (
-                                <div key={s.id} className="flex items-center gap-2 px-3 pt-1.5 text-[9px] opacity-70">
-                                  <span className={`px-1 rounded-sm font-bold border ${s.status === 'accepted' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : s.status === 'rejected' ? 'bg-rose-500/10 text-rose-400 border-rose-500/20' : 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20'}`}>
-                                    {s.status === 'pending' ? 'AGUARDANDO' : s.status === 'accepted' ? 'ACEITO' : 'RECUSADO'}
-                                  </span>
-                                  <span className="text-white/40 italic">Dividido com {s.target_email}</span>
-                                  <span className="text-white/40">Minha parte: <span className="text-emerald-400">{formatCurrency(item.pagamento - s.share_value)}</span></span>
-                                </div>
-                              ))}
-                              <div className="flex items-center gap-2 px-3 py-2">
-                                <input
-                                  type="text"
-                                  value={item.name}
-                                  onChange={(e) => updateItemLocal(item.id, 'name', e.target.value)}
-                                  readOnly={!isEdit}
-                                  className="flex-1 bg-transparent text-xs font-medium text-white/80 outline-none min-w-0"
-                                  placeholder="Descrição"
-                                />
-                                <span className="text-white/30 text-[10px]">R$</span>
-                                <input
-                                  type="number"
-                                  value={item.pagamento || ''}
-                                  onChange={(e) => updateItemLocal(item.id, 'pagamento', e.target.value)}
-                                  readOnly={!isEdit}
-                                  className="w-16 bg-transparent text-xs font-mono text-emerald-400 text-right outline-none"
-                                  placeholder="0"
-                                />
-                                <div className="flex gap-1 items-center bg-black/40 px-1.5 py-0.5 rounded-lg border border-white/5 shadow-xl shrink-0 opacity-0 group-hover:opacity-100 transition-all">
-                                  <button onClick={() => toggleRecurring(item)} className={`p-1 rounded transition-all ${item.is_recurring ? 'text-emerald-400 bg-emerald-500/10' : 'text-white/20 hover:text-white'}`} title="Recorrente">
-                                    <Repeat className="w-3 h-3" />
-                                  </button>
-                                  <button onClick={() => { setShareModal({ item }); setShareValue(String((item.pagamento || 0) / 2)); }} className="p-1 text-white/20 hover:text-indigo-400 rounded transition-all" title="Compartilhar">
-                                    <Share2 className="w-3 h-3" />
-                                  </button>
-                                  {isEdit ? (
-                                    <button onClick={() => saveItem(item)} className="p-1 bg-emerald-500/20 text-emerald-400 rounded">
-                                      <Check className="w-3 h-3" />
-                                    </button>
-                                  ) : (
-                                    <button onClick={() => setEditingItems(p => ({ ...p, [item.id]: true }))} className="p-1 text-white/20 hover:text-white rounded transition-all">
-                                      <Edit2 className="w-3 h-3" />
-                                    </button>
-                                  )}
-                                  <button onClick={() => removeItem(item.id)} className="p-1 text-white/20 hover:text-rose-400 rounded transition-all">
-                                    <Trash2 className="w-3 h-3" />
-                                  </button>
-                                </div>
-                              </div>
-                            </div>
-                          );
-                        ))}
-                        {items.filter(i => i.type === 'expense_pagamento').length === 0 && (
-                          <div className="px-3 py-4 text-center text-white/20 text-xs">Nenhuma conta</div>
+
+                      <div className="xl:col-span-1 bg-white/5 backdrop-blur-xl p-5 rounded-2xl border border-white/10 flex flex-col shadow-xl">
+                        <h3 className="text-sm font-bold text-white/70 mb-4 flex items-center gap-2">
+                          <PieChartIcon className="w-4 h-4 text-emerald-400" />
+                          Maiores Gastos
+                        </h3>
+                        {pieChartData.length > 0 ? (
+                          <div className="flex-1 w-full min-h-[300px]">
+                            <ResponsiveContainer width="100%" height="100%">
+                              <PieChart>
+                                <Pie data={pieChartData} cx="50%" cy="50%" innerRadius={60} outerRadius={100} paddingAngle={5} dataKey="value" stroke="none">
+                                  {pieChartData.map((_entry, index) => (
+                                    <Cell key={`cell-${index}`} fill={PIE_COLORS[index % PIE_COLORS.length]} />
+                                  ))}
+                                </Pie>
+                                <Tooltip contentStyle={{ backgroundColor: '#0f1115', borderColor: 'rgba(255,255,255,0.1)', borderRadius: '16px', color: '#fff' }} formatter={(val: any) => formatCurrency(Number(val))} />
+                                <Legend layout="horizontal" verticalAlign="bottom" align="center" wrapperStyle={{ fontSize: '11px', color: 'white' }} />
+                              </PieChart>
+                            </ResponsiveContainer>
+                          </div>
+                        ) : (
+                          <div className="flex-1 flex flex-col items-center justify-center text-white/40">
+                            <PieChartIcon className="w-12 h-12 mb-3 opacity-20" />
+                            <p className="text-sm">Nenhum gasto registrado.</p>
+                          </div>
                         )}
                       </div>
-                      <div className="px-4 py-2.5 border-t border-white/5 bg-black/20 flex justify-between items-center">
-                        <span className="text-[10px] font-bold text-white/30 uppercase tracking-wider">Total</span>
-                        <span className="text-sm font-mono font-bold text-emerald-400">{formatCurrency(items.filter(i => i.type === 'expense_pagamento').reduce((a, c) => a + (Number(c.pagamento) || 0), 0))}</span>
-                      </div>
                     </div>
-
-                    {/* Contas Adiantamento */}
-                    <div className="bg-white/5 backdrop-blur-xl rounded-2xl border border-white/10 overflow-hidden shadow-xl flex flex-col">
-                      <div className="px-4 py-3 border-b border-white/5 flex justify-between items-center bg-indigo-500/5">
-                        <span className="text-xs font-bold text-indigo-400 flex items-center gap-1.5">
-                          <TrendingDown className="w-3.5 h-3.5" /> Adiantamento
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    <div className="bg-white/5 backdrop-blur-xl rounded-2xl border border-white/10 overflow-hidden">
+                      <div className="flex items-center justify-between px-4 py-2.5 border-b border-white/5">
+                        <span className="text-[10px] font-bold text-white/40 uppercase tracking-widest flex items-center gap-1.5">
+                          <TrendingUp className="w-3 h-3 text-emerald-400" /> Receitas
                         </span>
-                        <button onClick={() => addItem('expense_vale')} className="p-1 text-white/40 hover:text-white hover:bg-white/10 rounded-lg transition-all">
-                          <Plus className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                      <div className="divide-y divide-white/5 flex-1">
-                        {items.filter(i => i.type === 'expense_vale').map(item => {
-                          const isEdit = editingItems[item.id];
-                          return (
-                            <div key={item.id} className={`flex flex-col transition-all group ${isEdit ? 'bg-indigo-500/5' : 'hover:bg-white/3'} ${sentShares.some(s => s.source_item_id === item.id) ? 'border-l-2 border-indigo-500' : ''}`}>
-                              {sentShares.filter(s => s.source_item_id === item.id).map(s => (
-                                <div key={s.id} className="flex items-center gap-2 px-3 pt-1.5 text-[9px] opacity-70">
-                                  <span className={`px-1 rounded-sm font-bold border ${s.status === 'accepted' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : s.status === 'rejected' ? 'bg-rose-500/10 text-rose-400 border-rose-500/20' : 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20'}`}>
-                                    {s.status === 'pending' ? 'AGUARDANDO' : s.status === 'accepted' ? 'ACEITO' : 'RECUSADO'}
-                                  </span>
-                                  <span className="text-white/40 italic">Dividido com {s.target_email}</span>
-                                  <span className="text-white/40">Minha parte: <span className="text-indigo-400">{formatCurrency(item.vale - s.share_value)}</span></span>
-                                </div>
-                              ))}
-                              <div className="flex items-center gap-2 px-3 py-2">
-                                <input
-                                  type="text"
-                                  value={item.name}
-                                  onChange={(e) => updateItemLocal(item.id, 'name', e.target.value)}
-                                  readOnly={!isEdit}
-                                  className="flex-1 bg-transparent text-xs font-medium text-white/80 outline-none min-w-0"
-                                  placeholder="Descrição"
-                                />
-                                <span className="text-white/30 text-[10px]">R$</span>
-                                <input
-                                  type="number"
-                                  value={item.vale || ''}
-                                  onChange={(e) => updateItemLocal(item.id, 'vale', e.target.value)}
-                                  readOnly={!isEdit}
-                                  className="w-16 bg-transparent text-xs font-mono text-indigo-400 text-right outline-none"
-                                  placeholder="0"
-                                />
-                                <div className="flex gap-1 items-center bg-black/40 px-1.5 py-0.5 rounded-lg border border-white/5 shadow-xl shrink-0 opacity-0 group-hover:opacity-100 transition-all">
-                                  <button onClick={() => toggleRecurring(item)} className={`p-1 rounded transition-all ${item.is_recurring ? 'text-indigo-400 bg-indigo-500/10' : 'text-white/20 hover:text-white'}`} title="Recorrente">
-                                    <Repeat className="w-3 h-3" />
-                                  </button>
-                                  <button onClick={() => { setShareModal({ item }); setShareValue(String((item.vale || 0) / 2)); }} className="p-1 text-white/20 hover:text-indigo-400 rounded transition-all" title="Compartilhar">
-                                    <Share2 className="w-3 h-3" />
-                                  </button>
-                                  {isEdit ? (
-                                    <button onClick={() => saveItem(item)} className="p-1 bg-emerald-500/20 text-emerald-400 rounded">
-                                      <Check className="w-3 h-3" />
-                                    </button>
-                                  ) : (
-                                    <button onClick={() => setEditingItems(p => ({ ...p, [item.id]: true }))} className="p-1 text-white/20 hover:text-white rounded transition-all">
-                                      <Edit2 className="w-3 h-3" />
-                                    </button>
-                                  )}
-                                  <button onClick={() => removeItem(item.id)} className="p-1 text-white/20 hover:text-rose-400 rounded transition-all">
-                                    <Trash2 className="w-3 h-3" />
-                                  </button>
-                                </div>
-                              </div>
-                            </div>
-                          );
-                        ))}
-                        {items.filter(i => i.type === 'expense_vale').length === 0 && (
-                          <div className="px-3 py-4 text-center text-white/20 text-xs">Nenhuma conta</div>
+                        {editingIncome ? (
+                          <button onClick={saveIncome} className="flex items-center gap-1 text-emerald-400 bg-emerald-500/20 hover:bg-emerald-500/30 px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all">
+                            <Check className="w-3 h-3" /> Salvar
+                          </button>
+                        ) : (
+                          <button onClick={() => setEditingIncome(true)} className="flex items-center gap-1 text-white/30 hover:text-white bg-white/5 hover:bg-white/10 px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all">
+                            <Edit2 className="w-3 h-3" /> Editar
+                          </button>
                         )}
                       </div>
-                      <div className="px-4 py-2.5 border-t border-white/5 bg-black/20 flex justify-between items-center">
-                        <span className="text-[10px] font-bold text-white/30 uppercase tracking-wider">Total</span>
-                        <span className="text-sm font-mono font-bold text-indigo-400">{formatCurrency(items.filter(i => i.type === 'expense_vale').reduce((a, c) => a + (Number(c.vale) || 0), 0))}</span>
+
+                      <div className="px-4 py-2.5 flex flex-wrap gap-2">
+                        {[
+                          { label: 'Pagamento', field: 'pagamento', color: 'emerald' },
+                          { label: 'Adiantamento', field: 'vale', color: 'indigo' },
+                          { label: 'Férias', field: 'ferias', color: 'emerald' },
+                          ...(currentMonthIndex === 10 || currentMonthIndex === 11 ? [{ label: '13º Salário', field: 'decimoTerceiro', color: 'emerald' }] : []),
+                        ].map(inputMap => (
+                          <div key={inputMap.field} className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border transition-all text-xs ${editingIncome ? 'border-emerald-500/30 bg-emerald-500/5' : 'border-white/5 bg-black/20'}`}>
+                            <span className={`text-[9px] font-bold uppercase tracking-wider ${inputMap.color === 'indigo' ? 'text-indigo-400' : 'text-emerald-400'}`}>{inputMap.label}</span>
+                            <span className="text-white/20">R$</span>
+                            <input
+                              type="number"
+                              className="bg-transparent text-xs text-white font-mono font-bold outline-none w-20 placeholder-white/10"
+                              value={income[inputMap.field as keyof typeof income] || ''}
+                              onChange={(e) => updateIncomeLocal(inputMap.field, Number(e.target.value))}
+                              readOnly={!editingIncome}
+                              onWheel={(e) => (e.target as HTMLElement).blur()}
+                              placeholder="0"
+                            />
+                            {!editingIncome && <Lock className="w-2.5 h-2.5 text-white/15" />}
+                          </div>
+                        ))}
                       </div>
                     </div>
 
-                    {/* Cartões */}
-                    <div className="bg-white/5 backdrop-blur-xl rounded-2xl border border-white/10 overflow-hidden shadow-xl flex flex-col">
-                      <div className="px-4 py-3 border-b border-white/5 flex justify-between items-center bg-white/3">
-                        <span className="text-xs font-bold text-white/60 flex items-center gap-1.5">
-                          <CreditCard className="w-3.5 h-3.5" /> Cartões
-                        </span>
-                        <button onClick={() => addItem('card_pagamento')} className="p-1 text-white/40 hover:text-white hover:bg-white/10 rounded-lg transition-all">
-                          <Plus className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                      <div className="flex-1">
-                        {items.filter(i => i.type.startsWith('card_')).map(item => {
-                          const isEdit = editingItems[item.id];
-                          const isPagamento = item.type === 'card_pagamento';
-                          const amountField = isPagamento ? 'pagamento' : 'vale';
-                          const isExpanded = expandedCards[item.id];
-                          const expenses = cardExpenses[item.id] || [];
-                          const hasExpenses = expenses.length > 0;
-                          const baseVal = Number(item[amountField] || 0);
-                          const expsSum = expenses.reduce((s, e) => s + Number(e.value || 0), 0);
-                          const displayTotal = baseVal + expsSum;
+                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                      <div className="bg-white/5 backdrop-blur-xl rounded-2xl border border-white/10 overflow-hidden shadow-xl flex flex-col">
+                        <div className="px-4 py-3 border-b border-white/5 flex justify-between items-center bg-emerald-500/5">
+                          <span className="text-xs font-bold text-emerald-400 flex items-center gap-1.5">
+                            <TrendingDown className="w-3.5 h-3.5" /> Pagamento
+                          </span>
+                          <button onClick={() => addItem('expense_pagamento')} className="p-1 text-white/40 hover:text-white hover:bg-white/10 rounded-lg transition-all">
+                            <Plus className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
 
-                          return (
-                            <div key={item.id} className="border-b border-white/5 last:border-0">
-                              <div className={`flex flex-col transition-all group ${isEdit ? 'bg-white/5' : 'hover:bg-white/3'} ${sentShares.some(s => s.source_item_id === item.id) ? 'border-l-2 border-indigo-500' : ''}`}>
+                        <div className="divide-y divide-white/5 flex-1">
+                          {items.filter(i => i.type === 'expense_pagamento').map(item => {
+                            const isEdit = editingItems[item.id];
+
+                            return (
+                              <div key={item.id} className={`flex flex-col transition-all group ${isEdit ? 'bg-emerald-500/5' : 'hover:bg-white/3'} ${sentShares.some(s => s.source_item_id === item.id) ? 'border-l-2 border-indigo-500' : ''}`}>
                                 {sentShares.filter(s => s.source_item_id === item.id).map(s => (
                                   <div key={s.id} className="flex items-center gap-2 px-3 pt-1.5 text-[9px] opacity-70">
                                     <span className={`px-1 rounded-sm font-bold border ${s.status === 'accepted' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : s.status === 'rejected' ? 'bg-rose-500/10 text-rose-400 border-rose-500/20' : 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20'}`}>
                                       {s.status === 'pending' ? 'AGUARDANDO' : s.status === 'accepted' ? 'ACEITO' : 'RECUSADO'}
                                     </span>
-                                    <span className="text-white/40 italic">Dividido com {s.target_email}</span>
-                                    <span className="text-white/40">Minha parte: <span className={isPagamento ? 'text-emerald-400' : 'text-indigo-400'}>{formatCurrency(displayTotal - s.share_value)}</span></span>
+                                    <span className="text-white/40 italic">Dividido com {s.target_email || s.to_user_id}</span>
+                                    <span className="text-white/40">Minha parte: <span className="text-emerald-400">{formatCurrency(Number(item.pagamento) - Number(s.share_value))}</span></span>
                                   </div>
                                 ))}
 
-                                <div className="flex items-center gap-2 px-3 py-2.5 transition-all">
-                                  <button
-                                    onClick={() => toggleExpandCard(item.id)}
-                                    className={`p-0.5 rounded transition-all shrink-0 ${isExpanded ? 'text-white/60' : 'text-white/20 hover:text-white/60'}`}
-                                  >
-                                    <ChevronRight className={`w-3 h-3 transition-transform duration-200 ${isExpanded ? 'rotate-90' : ''}`} />
-                                  </button>
+                                <div className="flex items-center gap-2 px-3 py-2">
                                   <input
                                     type="text"
                                     value={item.name}
                                     onChange={(e) => updateItemLocal(item.id, 'name', e.target.value)}
                                     readOnly={!isEdit}
                                     className="flex-1 bg-transparent text-xs font-medium text-white/80 outline-none min-w-0"
-                                    placeholder="Nome do cartão"
+                                    placeholder="Descrição"
                                   />
-                                  <select
-                                    value={isPagamento ? 'pagamento' : 'vale'}
-                                    onChange={(e) => updateCardSource(item, e.target.value as 'pagamento' | 'vale')}
-                                    disabled={!isEdit}
-                                    className={`text-[10px] font-bold outline-none appearance-none cursor-pointer rounded px-1.5 py-0.5 border transition-all ${isPagamento
-                                      ? 'bg-emerald-500/15 border-emerald-500/20 text-emerald-400'
-                                      : 'bg-indigo-500/15 border-indigo-500/20 text-indigo-400'
-                                      }`}
-                                  >
-                                    <option value="pagamento" className="bg-[#0f1115]">Pgto</option>
-                                    <option value="vale" className="bg-[#0f1115]">Adto</option>
-                                  </select>
                                   <span className="text-white/30 text-[10px]">R$</span>
-                                  {hasExpenses ? (
-                                    <span className={`w-20 text-xs font-mono font-bold text-right ${isPagamento ? 'text-emerald-400' : 'text-indigo-400'}`}>
-                                      {formatCurrency(displayTotal).replace('R$\u00a0', '')}
-                                    </span>
-                                  ) : (
-                                    <input
-                                      type="number"
-                                      value={item[amountField] || ''}
-                                      onChange={(e) => updateItemLocal(item.id, amountField, e.target.value)}
-                                      readOnly={!isEdit}
-                                      className={`w-16 bg-transparent text-xs font-mono text-right outline-none ${isPagamento ? 'text-emerald-400' : 'text-indigo-400'}`}
-                                    />
-                                  )}
-                                  <div className="flex gap-0.5 shrink-0 opacity-0 group-hover:opacity-100 transition-all">
-                                    <button onClick={() => toggleRecurring(item)} className={`p-1 rounded ${item.is_recurring ? 'text-emerald-400 bg-emerald-500/10' : 'text-white/20'}`}><Repeat className="w-3 h-3" /></button>
-                                    <button onClick={() => { setShareModal({ item }); setShareValue(String(displayTotal / 2)); }} className="p-1 text-white/20 hover:text-indigo-400"><Share2 className="w-3 h-3" /></button>
-                                    {isEdit ? (
-                                      <button onClick={() => saveItem(item)} className="p-1 bg-emerald-500/20 text-emerald-400 rounded"><Check className="w-3 h-3" /></button>
-                                    ) : (
-                                      <button onClick={() => setEditingItems(p => ({ ...p, [item.id]: true }))} className="p-1 text-white/20 hover:text-white"><Edit2 className="w-3 h-3" /></button>
-                                    )}
-                                    <button onClick={() => removeItem(item.id)} className="p-1 text-white/20 hover:text-rose-400"><Trash2 className="w-3 h-3" /></button>
-                                  </div>
-                                </div>
+                                  <input
+                                    type="number"
+                                    value={item.pagamento || ''}
+                                    onChange={(e) => updateItemLocal(item.id, 'pagamento', e.target.value)}
+                                    readOnly={!isEdit}
+                                    className="w-16 bg-transparent text-xs font-mono text-emerald-400 text-right outline-none"
+                                    placeholder="0"
+                                  />
 
-                                {isExpanded && (
-                                  <div className="bg-black/30 border-t border-white/5 divide-y divide-white/5">
-                                    {expenses.map(exp => {
-                                      const isExpEdit = editingCardExpenses[exp.id];
-                                      return (
-                                        <div key={exp.id} className="flex items-center gap-2 pl-8 pr-3 py-2 group">
-                                          <input
-                                            type="text"
-                                            value={exp.name}
-                                            onChange={(e) => updateCardExpenseLocal(item.id, exp.id, 'name', e.target.value)}
-                                            readOnly={!isExpEdit}
-                                            className="flex-1 bg-transparent text-[11px] text-white/70 outline-none"
-                                          />
-                                          <span className="text-white/20 text-[10px]">R$</span>
-                                          <input
-                                            type="number"
-                                            value={exp.value || ''}
-                                            onChange={(e) => updateCardExpenseLocal(item.id, exp.id, 'value', e.target.value)}
-                                            readOnly={!isExpEdit}
-                                            className="w-16 bg-transparent text-[11px] font-mono text-right outline-none text-white/90"
-                                          />
-                                          <div className="flex gap-0.5 opacity-0 group-hover:opacity-100 transition-all">
-                                            {isExpEdit ? (
-                                              <button onClick={() => saveCardExpense(item, exp)} className="p-1 bg-emerald-500/20 text-emerald-400 rounded"><Check className="w-2.5 h-2.5" /></button>
-                                            ) : (
-                                              <>
-                                                <button onClick={() => setEditingCardExpenses(p => ({ ...p, [exp.id]: true }))} className="p-1 text-white/20"><Edit2 className="w-2.5 h-2.5" /></button>
-                                                <button onClick={() => removeCardExpense(item, exp.id)} className="p-1 text-white/20 hover:text-rose-400"><Trash2 className="w-2.5 h-2.5" /></button>
-                                              </>
-                                            )}
-                                          </div>
-                                        </div>
-                                      );
-                                    })}
-                                    <button onClick={() => addCardExpense(item)} className="px-8 py-2 text-[10px] text-white/30 hover:text-white transition-all flex items-center gap-1">
-                                      <Plus className="w-3 h-3" /> Adicionar compra
+                                  <div className="flex gap-1 items-center bg-black/40 px-1.5 py-0.5 rounded-lg border border-white/5 shadow-xl shrink-0 opacity-0 group-hover:opacity-100 transition-all">
+                                    <button onClick={() => toggleRecurring(item)} className={`p-1 rounded transition-all ${item.is_recurring ? 'text-emerald-400 bg-emerald-500/10' : 'text-white/20 hover:text-white'}`} title="Recorrente">
+                                      <Repeat className="w-3 h-3" />
+                                    </button>
+                                    <button onClick={() => { setShareModal({ item }); setShareValue(String((Number(item.pagamento) || 0) / 2)); }} className="p-1 text-white/20 hover:text-indigo-400 rounded transition-all" title="Compartilhar">
+                                      <Share2 className="w-3 h-3" />
+                                    </button>
+                                    {isEdit ? (
+                                      <button onClick={() => saveItem(item)} className="p-1 bg-emerald-500/20 text-emerald-400 rounded">
+                                        <Check className="w-3 h-3" />
+                                      </button>
+                                    ) : (
+                                      <button onClick={() => setEditingItems(p => ({ ...p, [item.id]: true }))} className="p-1 text-white/20 hover:text-white rounded transition-all">
+                                        <Edit2 className="w-3 h-3" />
+                                      </button>
+                                    )}
+                                    <button onClick={() => removeItem(item.id)} className="p-1 text-white/20 hover:text-rose-400 rounded transition-all">
+                                      <Trash2 className="w-3 h-3" />
                                     </button>
                                   </div>
-                                )}
+                                </div>
                               </div>
-                            </div>
-                          );
-                        })}
-                        {items.filter(i => i.type.startsWith('card_')).length === 0 && (
-                          <div className="px-3 py-4 text-center text-white/20 text-xs">Nenhum cartão</div>
-                        )}
-                      </div>
-                      <div className="px-4 py-2.5 border-t border-white/5 bg-black/20 flex justify-between items-center">
-                        <span className="text-[10px] font-bold text-white/30 uppercase tracking-wider">Total</span>
-                        <span className="text-sm font-mono font-bold text-white/70">{formatCurrency(items.filter(i => i.type.startsWith('card_')).reduce((a, c) => a + (Number(c.pagamento) || 0) + (Number(c.vale) || 0), 0))}</span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
+                            );
+                          })}
 
-          {/* ======= VIEW: SETTINGS (admin) ======= */}
-          {activeView === 'settings' && userProfile?.role === 'admin' && (
-            <div className="flex-1 overflow-y-auto p-3 lg:p-6 pb-20 lg:pb-6 relative z-10 custom-scrollbar">
-              <div className="max-w-2xl mx-auto space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
-
-                {/* Header da página */}
-                <div className="flex items-center gap-3 mb-2">
-                  <div className="p-2.5 bg-violet-500/10 border border-violet-500/20 rounded-xl">
-                    <Shield className="w-5 h-5 text-violet-400" />
-                  </div>
-                  <div>
-                    <h2 className="font-extrabold text-lg">Painel Administrativo</h2>
-                    <p className="text-white/40 text-xs">Gerencie usuários do ZimFinance</p>
-                  </div>
-                </div>
-
-                {/* Criar novo usuário */}
-                <div className="bg-white/3 border border-white/8 rounded-2xl overflow-hidden">
-                  <div className="flex items-center gap-2 px-5 py-4 border-b border-white/5">
-                    <UserPlus className="w-4 h-4 text-emerald-400" />
-                    <span className="font-bold text-sm">Criar Novo Usuário</span>
-                  </div>
-                  <div className="p-5 space-y-4">
-                    {adminMsg && (
-                      <div className={`p-3 rounded-xl text-sm font-medium border ${adminMsg.type === 'success'
-                        ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
-                        : 'bg-rose-500/10 text-rose-400 border-rose-500/20'
-                        }`}>{adminMsg.text}</div>
-                    )}
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      <div>
-                        <label className="block text-[10px] font-bold text-white/40 uppercase tracking-widest mb-1.5">Nome</label>
-                        <input
-                          type="text"
-                          value={newUserName}
-                          onChange={e => setNewUserName(e.target.value)}
-                          placeholder="Nome do usuário"
-                          className="w-full bg-black/20 border border-white/10 focus:border-emerald-500 p-2.5 rounded-xl text-sm text-white outline-none transition-all"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-[10px] font-bold text-white/40 uppercase tracking-widest mb-1.5">E-mail *</label>
-                        <input
-                          type="email"
-                          value={newUserEmail}
-                          onChange={e => setNewUserEmail(e.target.value)}
-                          placeholder="email@exemplo.com"
-                          className="w-full bg-black/20 border border-white/10 focus:border-emerald-500 p-2.5 rounded-xl text-sm text-white outline-none transition-all"
-                        />
-                      </div>
-                      <div className="sm:col-span-2">
-                        <label className="block text-[10px] font-bold text-white/40 uppercase tracking-widest mb-1.5">Senha *</label>
-                        <input
-                          type="password"
-                          value={newUserPassword}
-                          onChange={e => setNewUserPassword(e.target.value)}
-                          placeholder="Mínimo 6 caracteres"
-                          className="w-full bg-black/20 border border-white/10 focus:border-emerald-500 p-2.5 rounded-xl text-sm text-white outline-none transition-all"
-                        />
-                      </div>
-                    </div>
-                    <button
-                      onClick={createAdminUser}
-                      disabled={adminLoading}
-                      className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-emerald-500 to-emerald-600 text-white font-bold py-3 rounded-xl hover:from-emerald-400 hover:to-emerald-500 transition-all disabled:opacity-50"
-                    >
-                      {adminLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <UserPlus className="w-4 h-4" />}
-                      Criar Usuário
-                    </button>
-                  </div>
-                </div>
-
-                {/* Lista de usuários */}
-                <div className="bg-white/3 border border-white/8 rounded-2xl overflow-hidden">
-                  <div className="flex items-center gap-2 px-5 py-4 border-b border-white/5">
-                    <Users className="w-4 h-4 text-indigo-400" />
-                    <span className="font-bold text-sm">Usuários Cadastrados</span>
-                    <span className="ml-auto text-xs text-white/30 font-mono">{adminUsers.length}</span>
-                  </div>
-                  {adminLoading && adminUsers.length === 0 ? (
-                    <div className="p-8 flex justify-center"><Loader2 className="w-6 h-6 animate-spin text-emerald-500" /></div>
-                  ) : (
-                    <div className="divide-y divide-white/5">
-                      {adminUsers.map(u => (
-                        <div key={u.id} className="flex items-center px-5 py-3.5 gap-3">
-                          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-emerald-500/30 to-indigo-500/30 border border-white/10 flex items-center justify-center text-xs font-bold text-white/70 flex-shrink-0">
-                            {(u.display_name || u.email).charAt(0).toUpperCase()}
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-bold text-white truncate">{u.display_name || u.email.split('@')[0]}</p>
-                            <p className="text-xs text-white/40 truncate">{u.email}</p>
-                          </div>
-                          <span className={`text-[10px] font-bold px-2 py-1 rounded-lg ${u.role === 'admin'
-                            ? 'bg-violet-500/20 text-violet-400 border border-violet-500/20'
-                            : 'bg-white/5 text-white/40 border border-white/10'
-                            }`}>{u.role === 'admin' ? 'Admin' : 'User'}</span>
+                          {items.filter(i => i.type === 'expense_pagamento').length === 0 && (
+                            <div className="px-3 py-4 text-center text-white/20 text-xs">Nenhuma conta</div>
+                          )}
                         </div>
-                      ))}
+
+                        <div className="px-4 py-2.5 border-t border-white/5 bg-black/20 flex justify-between items-center">
+                          <span className="text-[10px] font-bold text-white/30 uppercase tracking-wider">Total</span>
+                          <span className="text-sm font-mono font-bold text-emerald-400">{formatCurrency(items.filter(i => i.type === 'expense_pagamento').reduce((a, c) => a + (Number(c.pagamento) || 0), 0))}</span>
+                        </div>
+                      </div>
+
+                      <div className="bg-white/5 backdrop-blur-xl rounded-2xl border border-white/10 overflow-hidden shadow-xl flex flex-col">
+                        <div className="px-4 py-3 border-b border-white/5 flex justify-between items-center bg-indigo-500/5">
+                          <span className="text-xs font-bold text-indigo-400 flex items-center gap-1.5">
+                            <TrendingDown className="w-3.5 h-3.5" /> Adiantamento
+                          </span>
+                          <button onClick={() => addItem('expense_vale')} className="p-1 text-white/40 hover:text-white hover:bg-white/10 rounded-lg transition-all">
+                            <Plus className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+
+                        <div className="divide-y divide-white/5 flex-1">
+                          {items.filter(i => i.type === 'expense_vale').map(item => {
+                            const isEdit = editingItems[item.id];
+
+                            return (
+                              <div key={item.id} className={`flex flex-col transition-all group ${isEdit ? 'bg-indigo-500/5' : 'hover:bg-white/3'} ${sentShares.some(s => s.source_item_id === item.id) ? 'border-l-2 border-indigo-500' : ''}`}>
+                                {sentShares.filter(s => s.source_item_id === item.id).map(s => (
+                                  <div key={s.id} className="flex items-center gap-2 px-3 pt-1.5 text-[9px] opacity-70">
+                                    <span className={`px-1 rounded-sm font-bold border ${s.status === 'accepted' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : s.status === 'rejected' ? 'bg-rose-500/10 text-rose-400 border-rose-500/20' : 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20'}`}>
+                                      {s.status === 'pending' ? 'AGUARDANDO' : s.status === 'accepted' ? 'ACEITO' : 'RECUSADO'}
+                                    </span>
+                                    <span className="text-white/40 italic">Dividido com {s.target_email || s.to_user_id}</span>
+                                    <span className="text-white/40">Minha parte: <span className="text-indigo-400">{formatCurrency(Number(item.vale) - Number(s.share_value))}</span></span>
+                                  </div>
+                                ))}
+
+                                <div className="flex items-center gap-2 px-3 py-2">
+                                  <input
+                                    type="text"
+                                    value={item.name}
+                                    onChange={(e) => updateItemLocal(item.id, 'name', e.target.value)}
+                                    readOnly={!isEdit}
+                                    className="flex-1 bg-transparent text-xs font-medium text-white/80 outline-none min-w-0"
+                                    placeholder="Descrição"
+                                  />
+                                  <span className="text-white/30 text-[10px]">R$</span>
+                                  <input
+                                    type="number"
+                                    value={item.vale || ''}
+                                    onChange={(e) => updateItemLocal(item.id, 'vale', e.target.value)}
+                                    readOnly={!isEdit}
+                                    className="w-16 bg-transparent text-xs font-mono text-indigo-400 text-right outline-none"
+                                    placeholder="0"
+                                  />
+
+                                  <div className="flex gap-1 items-center bg-black/40 px-1.5 py-0.5 rounded-lg border border-white/5 shadow-xl shrink-0 opacity-0 group-hover:opacity-100 transition-all">
+                                    <button onClick={() => toggleRecurring(item)} className={`p-1 rounded transition-all ${item.is_recurring ? 'text-indigo-400 bg-indigo-500/10' : 'text-white/20 hover:text-white'}`} title="Recorrente">
+                                      <Repeat className="w-3 h-3" />
+                                    </button>
+                                    <button onClick={() => { setShareModal({ item }); setShareValue(String((Number(item.vale) || 0) / 2)); }} className="p-1 text-white/20 hover:text-indigo-400 rounded transition-all" title="Compartilhar">
+                                      <Share2 className="w-3 h-3" />
+                                    </button>
+                                    {isEdit ? (
+                                      <button onClick={() => saveItem(item)} className="p-1 bg-emerald-500/20 text-emerald-400 rounded">
+                                        <Check className="w-3 h-3" />
+                                      </button>
+                                    ) : (
+                                      <button onClick={() => setEditingItems(p => ({ ...p, [item.id]: true }))} className="p-1 text-white/20 hover:text-white rounded transition-all">
+                                        <Edit2 className="w-3 h-3" />
+                                      </button>
+                                    )}
+                                    <button onClick={() => removeItem(item.id)} className="p-1 text-white/20 hover:text-rose-400 rounded transition-all">
+                                      <Trash2 className="w-3 h-3" />
+                                    </button>
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })}
+
+                          {items.filter(i => i.type === 'expense_vale').length === 0 && (
+                            <div className="px-3 py-4 text-center text-white/20 text-xs">Nenhuma conta</div>
+                          )}
+                        </div>
+
+                        <div className="px-4 py-2.5 border-t border-white/5 bg-black/20 flex justify-between items-center">
+                          <span className="text-[10px] font-bold text-white/30 uppercase tracking-wider">Total</span>
+                          <span className="text-sm font-mono font-bold text-indigo-400">{formatCurrency(items.filter(i => i.type === 'expense_vale').reduce((a, c) => a + (Number(c.vale) || 0), 0))}</span>
+                        </div>
+                      </div>
+
+                      <div className="bg-white/5 backdrop-blur-xl rounded-2xl border border-white/10 overflow-hidden shadow-xl flex flex-col">
+                        <div className="px-4 py-3 border-b border-white/5 flex justify-between items-center bg-white/3">
+                          <span className="text-xs font-bold text-white/60 flex items-center gap-1.5">
+                            <CreditCard className="w-3.5 h-3.5" /> Cartões
+                          </span>
+                          <button onClick={() => addItem('card_pagamento')} className="p-1 text-white/40 hover:text-white hover:bg-white/10 rounded-lg transition-all">
+                            <Plus className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+
+                        <div className="flex-1">
+                          {items.filter(i => i.type.startsWith('card_')).map(item => {
+                            const isEdit = editingItems[item.id];
+                            const isPagamento = item.type === 'card_pagamento';
+                            const amountField = isPagamento ? 'pagamento' : 'vale';
+                            const isExpanded = expandedCards[item.id];
+                            const expenses = cardExpenses[item.id] || [];
+                            const hasExpenses = expenses.length > 0;
+                            const baseVal = Number(item[amountField as keyof ItemRecord] || 0);
+                            const expsSum = expenses.reduce((s, e) => s + Number(e.value || 0), 0);
+                            const displayTotal = baseVal + expsSum;
+
+                            return (
+                              <div key={item.id} className="border-b border-white/5 last:border-0">
+                                <div className={`flex flex-col transition-all group ${isEdit ? 'bg-white/5' : 'hover:bg-white/3'} ${sentShares.some(s => s.source_item_id === item.id) ? 'border-l-2 border-indigo-500' : ''}`}>
+                                  {sentShares.filter(s => s.source_item_id === item.id).map(s => (
+                                    <div key={s.id} className="flex items-center gap-2 px-3 pt-1.5 text-[9px] opacity-70">
+                                      <span className={`px-1 rounded-sm font-bold border ${s.status === 'accepted' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : s.status === 'rejected' ? 'bg-rose-500/10 text-rose-400 border-rose-500/20' : 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20'}`}>
+                                        {s.status === 'pending' ? 'AGUARDANDO' : s.status === 'accepted' ? 'ACEITO' : 'RECUSADO'}
+                                      </span>
+                                      <span className="text-white/40 italic">Dividido com {s.target_email || s.to_user_id}</span>
+                                      <span className="text-white/40">
+                                        Minha parte:{' '}
+                                        <span className={isPagamento ? 'text-emerald-400' : 'text-indigo-400'}>
+                                          {formatCurrency(displayTotal - Number(s.share_value))}
+                                        </span>
+                                      </span>
+                                    </div>
+                                  ))}
+
+                                  <div className="flex items-center gap-2 px-3 py-2.5 transition-all">
+                                    <button onClick={() => toggleExpandCard(item.id)} className={`p-0.5 rounded transition-all shrink-0 ${isExpanded ? 'text-white/60' : 'text-white/20 hover:text-white/60'}`}>
+                                      <ChevronRight className={`w-3 h-3 transition-transform duration-200 ${isExpanded ? 'rotate-90' : ''}`} />
+                                    </button>
+
+                                    <input
+                                      type="text"
+                                      value={item.name}
+                                      onChange={(e) => updateItemLocal(item.id, 'name', e.target.value)}
+                                      readOnly={!isEdit}
+                                      className="flex-1 bg-transparent text-xs font-medium text-white/80 outline-none min-w-0"
+                                      placeholder="Nome do cartão"
+                                    />
+
+                                    <select
+                                      value={isPagamento ? 'pagamento' : 'vale'}
+                                      onChange={(e) => updateCardSource(item, e.target.value as 'pagamento' | 'vale')}
+                                      disabled={!isEdit}
+                                      className={`text-[10px] font-bold outline-none appearance-none cursor-pointer rounded px-1.5 py-0.5 border transition-all ${isPagamento ? 'bg-emerald-500/15 border-emerald-500/20 text-emerald-400' : 'bg-indigo-500/15 border-indigo-500/20 text-indigo-400'}`}
+                                    >
+                                      <option value="pagamento" className="bg-[#0f1115]">Pgto</option>
+                                      <option value="vale" className="bg-[#0f1115]">Adto</option>
+                                    </select>
+
+                                    <span className="text-white/30 text-[10px]">R$</span>
+
+                                    {hasExpenses ? (
+                                      <span className={`w-20 text-xs font-mono font-bold text-right ${isPagamento ? 'text-emerald-400' : 'text-indigo-400'}`}>
+                                        {formatCurrency(displayTotal).replace('R$\u00a0', '')}
+                                      </span>
+                                    ) : (
+                                      <input
+                                        type="number"
+                                        value={(item[amountField as keyof ItemRecord] as number) || ''}
+                                        onChange={(e) => updateItemLocal(item.id, amountField, e.target.value)}
+                                        readOnly={!isEdit}
+                                        className={`w-16 bg-transparent text-xs font-mono text-right outline-none ${isPagamento ? 'text-emerald-400' : 'text-indigo-400'}`}
+                                      />
+                                    )}
+
+                                    <div className="flex gap-0.5 shrink-0 opacity-0 group-hover:opacity-100 transition-all">
+                                      <button onClick={() => toggleRecurring(item)} className={`p-1 rounded ${item.is_recurring ? 'text-emerald-400 bg-emerald-500/10' : 'text-white/20'}`} title="Recorrente">
+                                        <Repeat className="w-3 h-3" />
+                                      </button>
+                                      <button onClick={() => { setShareModal({ item }); setShareValue(String(displayTotal / 2)); }} className="p-1 text-white/20 hover:text-indigo-400" title="Compartilhar">
+                                        <Share2 className="w-3 h-3" />
+                                      </button>
+                                      {isEdit ? (
+                                        <button onClick={() => saveItem(item)} className="p-1 bg-emerald-500/20 text-emerald-400 rounded">
+                                          <Check className="w-3 h-3" />
+                                        </button>
+                                      ) : (
+                                        <button onClick={() => setEditingItems(p => ({ ...p, [item.id]: true }))} className="p-1 text-white/20 hover:text-white">
+                                          <Edit2 className="w-3 h-3" />
+                                        </button>
+                                      )}
+                                      <button onClick={() => removeItem(item.id)} className="p-1 text-white/20 hover:text-rose-400">
+                                        <Trash2 className="w-3 h-3" />
+                                      </button>
+                                    </div>
+                                  </div>
+
+                                  {isExpanded && (
+                                    <div className="bg-black/30 border-t border-white/5 divide-y divide-white/5">
+                                      {expenses.map(exp => {
+                                        const isExpEdit = editingCardExpenses[exp.id];
+
+                                        return (
+                                          <div key={exp.id} className="flex items-center gap-2 pl-8 pr-3 py-2 group">
+                                            <input
+                                              type="text"
+                                              value={exp.name}
+                                              onChange={(e) => updateCardExpenseLocal(item.id, exp.id, 'name', e.target.value)}
+                                              readOnly={!isExpEdit}
+                                              className="flex-1 bg-transparent text-[11px] text-white/70 outline-none"
+                                              placeholder="Compra"
+                                            />
+                                            <span className="text-white/20 text-[10px]">R$</span>
+                                            <input
+                                              type="number"
+                                              value={exp.value || ''}
+                                              onChange={(e) => updateCardExpenseLocal(item.id, exp.id, 'value', e.target.value)}
+                                              readOnly={!isExpEdit}
+                                              className="w-16 bg-transparent text-[11px] font-mono text-right outline-none text-white/90"
+                                            />
+                                            <div className="flex gap-0.5 opacity-0 group-hover:opacity-100 transition-all">
+                                              <button onClick={() => toggleRecurringCardExpense(item.id, exp)} className={`p-1 rounded ${exp.is_recurring ? 'text-emerald-400 bg-emerald-500/10' : 'text-white/20'}`} title="Recorrente">
+                                                <Repeat className="w-2.5 h-2.5" />
+                                              </button>
+
+                                              {isExpEdit ? (
+                                                <button onClick={() => saveCardExpense(item, exp)} className="p-1 bg-emerald-500/20 text-emerald-400 rounded">
+                                                  <Check className="w-2.5 h-2.5" />
+                                                </button>
+                                              ) : (
+                                                <button onClick={() => setEditingCardExpenses(p => ({ ...p, [exp.id]: true }))} className="p-1 text-white/20">
+                                                  <Edit2 className="w-2.5 h-2.5" />
+                                                </button>
+                                              )}
+
+                                              <button onClick={() => removeCardExpense(item, exp.id)} className="p-1 text-white/20 hover:text-rose-400">
+                                                <Trash2 className="w-2.5 h-2.5" />
+                                              </button>
+                                            </div>
+                                          </div>
+                                        );
+                                      })}
+
+                                      <button onClick={() => addCardExpense(item)} className="px-8 py-2 text-[10px] text-white/30 hover:text-white transition-all flex items-center gap-1">
+                                        <Plus className="w-3 h-3" /> Adicionar compra
+                                      </button>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })}
+
+                          {items.filter(i => i.type.startsWith('card_')).length === 0 && (
+                            <div className="px-3 py-4 text-center text-white/20 text-xs">Nenhum cartão</div>
+                          )}
+                        </div>
+
+                        <div className="px-4 py-2.5 border-t border-white/5 bg-black/20 flex justify-between items-center">
+                          <span className="text-[10px] font-bold text-white/30 uppercase tracking-wider">Total</span>
+                          <span className="text-sm font-mono font-bold text-white/70">
+                            {formatCurrency(
+                              items
+                                .filter(i => i.type.startsWith('card_'))
+                                .reduce((a, c) => {
+                                  const base = (Number(c.pagamento) || 0) + (Number(c.vale) || 0);
+                                  const expensesTotal = (cardExpenses[c.id] || []).reduce((s, e) => s + Number(e.value || 0), 0);
+                                  return a + base + expensesTotal;
+                                }, 0),
+                            )}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {activeView === 'settings' && userProfile?.role === 'admin' && (
+          <div className="flex-1 overflow-y-auto p-3 lg:p-6 pb-20 lg:pb-6 relative z-10 custom-scrollbar">
+            <div className="max-w-2xl mx-auto space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+              <div className="flex items-center gap-3 mb-2">
+                <div className="p-2.5 bg-violet-500/10 border border-violet-500/20 rounded-xl">
+                  <Shield className="w-5 h-5 text-violet-400" />
+                </div>
+                <div>
+                  <h2 className="font-extrabold text-lg">Painel Administrativo</h2>
+                  <p className="text-white/40 text-xs">Gerencie usuários do ZimFinance</p>
+                </div>
+              </div>
+
+              <div className="bg-white/3 border border-white/8 rounded-2xl overflow-hidden">
+                <div className="flex items-center gap-2 px-5 py-4 border-b border-white/5">
+                  <UserPlus className="w-4 h-4 text-emerald-400" />
+                  <span className="font-bold text-sm">Criar Novo Usuário</span>
+                </div>
+
+                <div className="p-5 space-y-4">
+                  {adminMsg && (
+                    <div className={`p-3 rounded-xl text-sm font-medium border ${adminMsg.type === 'success' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-rose-500/10 text-rose-400 border-rose-500/20'}`}>
+                      {adminMsg.text}
                     </div>
                   )}
-                </div>
 
-              </div>
-            </div>
-          )}
-
-          {/* ======= MODAL: COMPARTILHAR DESPESA ======= */}
-          {shareModal && (
-            <>
-              <div className="fixed inset-0 bg-black/70 z-[80] backdrop-blur-sm" onClick={() => { setShareModal(null); setShareEmail(''); setShareValue(''); setShareMsg(null); }} />
-              <div className="fixed inset-0 z-[90] flex items-center justify-center p-4">
-                <div className="bg-[#1a1d23] border border-white/10 rounded-3xl w-full max-w-sm shadow-2xl">
-                  <div className="flex items-center gap-3 px-6 py-4 border-b border-white/10">
-                    <div className="p-2 bg-indigo-500/10 rounded-xl"><Share2 className="w-4 h-4 text-indigo-400" /></div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
-                      <h3 className="font-bold text-sm">Compartilhar Despesa</h3>
-                      <p className="text-white/40 text-xs truncate max-w-[180px]">{shareModal.item.name || 'Sem nome'}</p>
-                    </div>
-                    <button onClick={() => { setShareModal(null); setShareEmail(''); setShareValue(''); setShareMsg(null); }} className="ml-auto p-1.5 text-white/40 hover:text-white rounded-lg">
-                      <X className="w-4 h-4" />
-                    </button>
-                  </div>
-                  <div className="p-6 space-y-4">
-                    {shareMsg && (
-                      <div className={`p-3 rounded-xl text-xs font-medium ${shareMsg.type === 'success' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'
-                        }`}>{shareMsg.text}</div>
-                    )}
-                    <div className="bg-white/3 border border-white/8 rounded-xl p-3 flex items-center justify-between">
-                      <div>
-                        <p className="text-[10px] text-white/40 uppercase tracking-wider font-bold">Valor total</p>
-                        <p className="text-lg font-mono font-bold text-white">{formatCurrency((Number(shareModal.item.pagamento) || 0) + (Number(shareModal.item.vale) || 0))}</p>
-                      </div>
-                      <div className="text-right">
-                        <p className="text-[10px] text-white/40 uppercase tracking-wider font-bold">Conta</p>
-                        <p className="text-xs font-bold text-indigo-400">{shareModal.item.type.includes('pagamento') ? 'Pagamento' : 'Adiantamento'}</p>
-                      </div>
+                      <label className="block text-[10px] font-bold text-white/40 uppercase tracking-widest mb-1.5">Nome</label>
+                      <input
+                        type="text"
+                        value={newUserName}
+                        onChange={e => setNewUserName(e.target.value)}
+                        placeholder="Nome do usuário"
+                        className="w-full bg-black/20 border border-white/10 focus:border-emerald-500 p-2.5 rounded-xl text-sm text-white outline-none transition-all"
+                      />
                     </div>
                     <div>
-                      <label className="block text-[10px] font-bold text-white/40 uppercase tracking-widest mb-1.5">E-mail do usuário</label>
+                      <label className="block text-[10px] font-bold text-white/40 uppercase tracking-widest mb-1.5">E-mail *</label>
                       <input
                         type="email"
-                        value={shareEmail}
-                        onChange={e => setShareEmail(e.target.value)}
+                        value={newUserEmail}
+                        onChange={e => setNewUserEmail(e.target.value)}
                         placeholder="email@exemplo.com"
-                        className="w-full bg-black/20 border border-white/10 focus:border-indigo-500 p-3 rounded-xl text-sm text-white outline-none transition-all"
+                        className="w-full bg-black/20 border border-white/10 focus:border-emerald-500 p-2.5 rounded-xl text-sm text-white outline-none transition-all"
                       />
                     </div>
-                    <div>
-                      <label className="block text-[10px] font-bold text-white/40 uppercase tracking-widest mb-1.5">Valor que ele(a) vai pagar</label>
+                    <div className="sm:col-span-2">
+                      <label className="block text-[10px] font-bold text-white/40 uppercase tracking-widest mb-1.5">Senha *</label>
                       <input
-                        type="number"
-                        value={shareValue}
-                        onChange={e => setShareValue(e.target.value)}
-                        placeholder="0,00"
-                        min="0"
-                        step="0.01"
-                        className="w-full bg-black/20 border border-white/10 focus:border-indigo-500 p-3 rounded-xl text-sm text-white outline-none transition-all"
+                        type="password"
+                        value={newUserPassword}
+                        onChange={e => setNewUserPassword(e.target.value)}
+                        placeholder="Mínimo 6 caracteres"
+                        className="w-full bg-black/20 border border-white/10 focus:border-emerald-500 p-2.5 rounded-xl text-sm text-white outline-none transition-all"
                       />
                     </div>
-                    <div className="flex gap-3">
-                      <button onClick={() => { setShareModal(null); setShareEmail(''); setShareValue(''); setShareMsg(null); }} className="flex-1 py-3 rounded-xl border border-white/10 text-white/50 text-sm font-bold hover:bg-white/5 transition-all">
-                        Cancelar
-                      </button>
-                      <button
-                        onClick={sendExpenseShare}
-                        disabled={shareLoading}
-                        className="flex-1 py-3 rounded-xl bg-gradient-to-r from-indigo-500 to-indigo-600 text-white text-sm font-bold hover:from-indigo-400 hover:to-indigo-500 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
-                      >
-                        {shareLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Share2 className="w-4 h-4" />}
-                        Compartilhar
-                      </button>
+                  </div>
+
+                  <button
+                    onClick={createAdminUser}
+                    disabled={adminLoading}
+                    className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-emerald-500 to-emerald-600 text-white font-bold py-3 rounded-xl hover:from-emerald-400 hover:to-emerald-500 transition-all disabled:opacity-50"
+                  >
+                    {adminLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <UserPlus className="w-4 h-4" />}
+                    Criar Usuário
+                  </button>
+                </div>
+              </div>
+
+              <div className="bg-white/3 border border-white/8 rounded-2xl overflow-hidden">
+                <div className="flex items-center gap-2 px-5 py-4 border-b border-white/5">
+                  <Users className="w-4 h-4 text-indigo-400" />
+                  <span className="font-bold text-sm">Usuários Cadastrados</span>
+                  <span className="ml-auto text-xs text-white/30 font-mono">{adminUsers.length}</span>
+                </div>
+
+                {adminLoading && adminUsers.length === 0 ? (
+                  <div className="p-8 flex justify-center">
+                    <Loader2 className="w-6 h-6 animate-spin text-emerald-500" />
+                  </div>
+                ) : (
+                  <div className="divide-y divide-white/5">
+                    {adminUsers.map(u => (
+                      <div key={u.id} className="flex items-center px-5 py-3.5 gap-3">
+                        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-emerald-500/30 to-indigo-500/30 border border-white/10 flex items-center justify-center text-xs font-bold text-white/70 flex-shrink-0">
+                          {(u.display_name || u.email).charAt(0).toUpperCase()}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-bold text-white truncate">{u.display_name || u.email.split('@')[0]}</p>
+                          <p className="text-xs text-white/40 truncate">{u.email}</p>
+                        </div>
+                        <span className={`text-[10px] font-bold px-2 py-1 rounded-lg ${u.role === 'admin' ? 'bg-violet-500/20 text-violet-400 border border-violet-500/20' : 'bg-white/5 text-white/40 border border-white/10'}`}>
+                          {u.role === 'admin' ? 'Admin' : 'User'}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {shareModal && (
+          <>
+            <div
+              className="fixed inset-0 bg-black/70 z-[80] backdrop-blur-sm"
+              onClick={() => {
+                setShareModal(null);
+                setShareEmail('');
+                setShareValue('');
+                setShareMsg(null);
+              }}
+            />
+
+            <div className="fixed inset-0 z-[90] flex items-center justify-center p-4">
+              <div className="bg-[#1a1d23] border border-white/10 rounded-3xl w-full max-w-sm shadow-2xl">
+                <div className="flex items-center gap-3 px-6 py-4 border-b border-white/10">
+                  <div className="p-2 bg-indigo-500/10 rounded-xl">
+                    <Share2 className="w-4 h-4 text-indigo-400" />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-sm">Compartilhar Despesa</h3>
+                    <p className="text-white/40 text-xs truncate max-w-[180px]">{shareModal.item.name || 'Sem nome'}</p>
+                  </div>
+                  <button
+                    onClick={() => {
+                      setShareModal(null);
+                      setShareEmail('');
+                      setShareValue('');
+                      setShareMsg(null);
+                    }}
+                    className="ml-auto p-1.5 text-white/40 hover:text-white rounded-lg"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+
+                <div className="p-6 space-y-4">
+                  {shareMsg && (
+                    <div className={`p-3 rounded-xl text-xs font-medium ${shareMsg.type === 'success' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'}`}>
+                      {shareMsg.text}
                     </div>
+                  )}
+
+                  <div className="bg-white/3 border border-white/8 rounded-xl p-3 flex items-center justify-between">
+                    <div>
+                      <p className="text-[10px] text-white/40 uppercase tracking-wider font-bold">Valor total</p>
+                      <p className="text-lg font-mono font-bold text-white">
+                        {formatCurrency((Number(shareModal.item.pagamento) || 0) + (Number(shareModal.item.vale) || 0))}
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-[10px] text-white/40 uppercase tracking-wider font-bold">Conta</p>
+                      <p className="text-xs font-bold text-indigo-400">
+                        {shareModal.item.type.includes('pagamento') ? 'Pagamento' : 'Adiantamento'}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-bold text-white/40 uppercase tracking-widest mb-1.5">E-mail do usuário</label>
+                    <input
+                      type="email"
+                      value={shareEmail}
+                      onChange={e => setShareEmail(e.target.value)}
+                      placeholder="email@exemplo.com"
+                      className="w-full bg-black/20 border border-white/10 focus:border-indigo-500 p-3 rounded-xl text-sm text-white outline-none transition-all"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-bold text-white/40 uppercase tracking-widest mb-1.5">Valor que ele(a) vai pagar</label>
+                    <input
+                      type="number"
+                      value={shareValue}
+                      onChange={e => setShareValue(e.target.value)}
+                      placeholder="0,00"
+                      min="0"
+                      step="0.01"
+                      className="w-full bg-black/20 border border-white/10 focus:border-indigo-500 p-3 rounded-xl text-sm text-white outline-none transition-all"
+                    />
+                  </div>
+
+                  <div className="flex gap-3">
+                    <button
+                      onClick={() => {
+                        setShareModal(null);
+                        setShareEmail('');
+                        setShareValue('');
+                        setShareMsg(null);
+                      }}
+                      className="flex-1 py-3 rounded-xl border border-white/10 text-white/50 text-sm font-bold hover:bg-white/5 transition-all"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      onClick={sendExpenseShare}
+                      disabled={shareLoading}
+                      className="flex-1 py-3 rounded-xl bg-gradient-to-r from-indigo-500 to-indigo-600 text-white text-sm font-bold hover:from-indigo-400 hover:to-indigo-500 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+                    >
+                      {shareLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Share2 className="w-4 h-4" />}
+                      Compartilhar
+                    </button>
                   </div>
                 </div>
               </div>
-            </>
-          )}
+            </div>
+          </>
+        )}
+      </main>
 
-        </main>
-
-      {/* Mobile Bottom Navigation */}
       <nav className="fixed bottom-0 left-0 right-0 lg:hidden z-50 bg-[#0f1115]/95 backdrop-blur-2xl border-t border-white/10">
         <div className="flex items-center justify-around h-14">
           <button
@@ -1479,6 +1881,7 @@ return (
             <LayoutDashboard className="w-5 h-5" />
             <span className="text-[10px] font-bold mt-0.5">Dashboard</span>
           </button>
+
           <button
             onClick={() => setActiveView('lancamentos')}
             className={`flex flex-col items-center justify-center flex-1 h-full transition-all ${activeView === 'lancamentos' ? 'text-emerald-400' : 'text-white/40'}`}
@@ -1486,15 +1889,20 @@ return (
             <Receipt className="w-5 h-5" />
             <span className="text-[10px] font-bold mt-0.5">Lançamentos</span>
           </button>
+
           {userProfile?.role === 'admin' && (
             <button
-              onClick={() => { setActiveView('settings'); loadAdminUsers(); }}
+              onClick={() => {
+                setActiveView('settings');
+                loadAdminUsers();
+              }}
               className={`flex flex-col items-center justify-center flex-1 h-full transition-all ${activeView === 'settings' ? 'text-violet-400' : 'text-white/40'}`}
             >
               <Settings className="w-5 h-5" />
               <span className="text-[10px] font-bold mt-0.5">Admin</span>
             </button>
           )}
+
           <button
             onClick={handleLogout}
             className="flex flex-col items-center justify-center flex-1 h-full text-white/40 hover:text-rose-400 transition-all"
