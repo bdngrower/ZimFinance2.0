@@ -79,6 +79,11 @@ const formatCurrency = (value: number) => {
   }).format(value || 0);
 };
 
+// Verifica se um item já foi compartilhado
+const isShared = (itemId: string, sentShares: ExpenseShare[]) => {
+  return sentShares.some(s => s.source_item_id === itemId && s.status !== 'rejected');
+};
+
 type ItemRecord = {
   id: string;
   name: string;
@@ -87,6 +92,7 @@ type ItemRecord = {
   type: string;
   is_recurring?: boolean;
   recurring_group_id?: string;
+  linked_share_id?: string;
 };
 
 type CardExpense = {
@@ -363,6 +369,13 @@ export default function App() {
     } else {
       setShareMsg({ type: 'success', text: `Convite enviado para ${shareEmail}!` });
       await loadNotifications();
+      // Fecha o modal automaticamente após 2 segundos
+      setTimeout(() => {
+        setShareModal(null);
+        setShareEmail('');
+        setShareValue('');
+        setShareMsg(null);
+      }, 2000);
     }
 
     setShareLoading(false);
@@ -406,6 +419,7 @@ export default function App() {
         name: `${share.expense_name} (compartilhado)`,
         pagamento: isPagamento ? share.share_value : 0,
         vale: !isPagamento ? share.share_value : 0,
+        linked_share_id: share.id,
       });
     }
 
@@ -719,6 +733,10 @@ export default function App() {
       return n;
     });
 
+    // Primeiro exclui qualquer compartilhamento vinculado a este item
+    // O trigger no banco cuidará de excluir as cópias nas contas de outros usuários
+    await supabase.from('expense_shares').delete().eq('source_item_id', id);
+
     await supabase.from('items').delete().eq('id', id);
 
     if (deleteFuture && item.recurring_group_id) {
@@ -793,6 +811,9 @@ export default function App() {
 
     const remaining = expenses.filter(e => e.id !== expId);
     setCardExpenses(prev => ({ ...prev, [cardItem.id]: remaining }));
+    // Exclui compartilhamentos vinculados a esta despesa individual
+    await supabase.from('expense_shares').delete().eq('source_item_id', expId);
+
     await supabase.from('card_expenses').delete().eq('id', expId);
 
     fetchYearData();
@@ -1382,7 +1403,11 @@ export default function App() {
                                     <button onClick={() => toggleRecurring(item)} className={`p-1 rounded transition-all ${item.is_recurring ? 'text-emerald-400 bg-emerald-500/10' : 'text-white/20 hover:text-white'}`} title="Recorrente">
                                       <Repeat className="w-3 h-3" />
                                     </button>
-                                    <button onClick={() => { setShareModal({ item }); setShareValue(String((Number(item.pagamento) || 0) / 2)); }} className="p-1 text-white/20 hover:text-indigo-400 rounded transition-all" title="Compartilhar">
+                                    <button 
+                                      onClick={() => { setShareModal({ item }); setShareValue(String((Number(item.pagamento) || 0) / 2)); }} 
+                                      className={`p-1 transition-all rounded ${isShared(item.id, sentShares) ? 'text-emerald-400' : 'text-white/20 hover:text-indigo-400'}`}
+                                      title={isShared(item.id, sentShares) ? "Já compartilhado" : "Compartilhar"}
+                                    >
                                       <Share2 className="w-3 h-3" />
                                     </button>
                                     {isEdit ? (
@@ -1463,7 +1488,11 @@ export default function App() {
                                     <button onClick={() => toggleRecurring(item)} className={`p-1 rounded transition-all ${item.is_recurring ? 'text-indigo-400 bg-indigo-500/10' : 'text-white/20 hover:text-white'}`} title="Recorrente">
                                       <Repeat className="w-3 h-3" />
                                     </button>
-                                    <button onClick={() => { setShareModal({ item }); setShareValue(String((Number(item.vale) || 0) / 2)); }} className="p-1 text-white/20 hover:text-indigo-400 rounded transition-all" title="Compartilhar">
+                                    <button 
+                                      onClick={() => { setShareModal({ item }); setShareValue(String((Number(item.vale) || 0) / 2)); }} 
+                                      className={`p-1 transition-all rounded ${isShared(item.id, sentShares) ? 'text-emerald-400' : 'text-white/20 hover:text-indigo-400'}`}
+                                      title={isShared(item.id, sentShares) ? "Já compartilhado" : "Compartilhar"}
+                                    >
                                       <Share2 className="w-3 h-3" />
                                     </button>
                                     {isEdit ? (
@@ -1579,7 +1608,11 @@ export default function App() {
                                       <button onClick={() => toggleRecurring(item)} className={`p-1 rounded ${item.is_recurring ? 'text-emerald-400 bg-emerald-500/10' : 'text-white/20'}`} title="Recorrente">
                                         <Repeat className="w-3 h-3" />
                                       </button>
-                                      <button onClick={() => { setShareModal({ item }); setShareValue(String(displayTotal / 2)); }} className="p-1 text-white/20 hover:text-indigo-400" title="Compartilhar">
+                                      <button 
+                                        onClick={() => { setShareModal({ item }); setShareValue(String(displayTotal / 2)); }} 
+                                        className={`p-1 transition-all rounded ${isShared(item.id, sentShares) ? 'text-emerald-400' : 'text-white/20 hover:text-indigo-400'}`}
+                                        title={isShared(item.id, sentShares) ? "Já compartilhado" : "Compartilhar"}
+                                      >
                                         <Share2 className="w-3 h-3" />
                                       </button>
                                       {isEdit ? (
@@ -1624,7 +1657,11 @@ export default function App() {
                                               <button onClick={() => toggleRecurringCardExpense(item.id, exp)} className={`p-1 rounded ${exp.is_recurring ? 'text-emerald-400 bg-emerald-500/10' : 'text-white/20'}`} title="Recorrente">
                                                 <Repeat className="w-2.5 h-2.5" />
                                               </button>
-                                              <button onClick={() => { setShareModal({ item: exp, isCardExp: true }); setShareValue(String((Number(exp.value) || 0) / 2)); }} className="p-1 text-white/20 hover:text-indigo-400" title="Compartilhar">
+                                              <button 
+                                                onClick={() => { setShareModal({ item: exp, isCardExp: true }); setShareValue(String((Number(exp.value) || 0) / 2)); }} 
+                                                className={`p-1 transition-all rounded ${isShared(exp.id, sentShares) ? 'text-emerald-400' : 'text-white/20 hover:text-indigo-400'}`}
+                                                title={isShared(exp.id, sentShares) ? "Já compartilhado" : "Compartilhar"}
+                                              >
                                                 <Share2 className="w-2.5 h-2.5" />
                                               </button>
 
