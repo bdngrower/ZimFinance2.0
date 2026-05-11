@@ -350,7 +350,6 @@ export default function App() {
       from_user_id: session?.user?.id,
       to_user_id: targetProfile.id,
       from_user_email: session?.user?.email,
-      target_email: targetProfile.email,
       expense_name: item.name || 'Despesa sem nome',
       expense_value: totalValue,
       share_value: sv,
