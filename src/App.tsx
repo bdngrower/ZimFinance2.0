@@ -173,7 +173,7 @@ export default function App() {
   const [newUserName, setNewUserName] = useState('');
   const [newUserPassword, setNewUserPassword] = useState('');
   const [adminMsg, setAdminMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
-  const [shareModal, setShareModal] = useState<{ item: ItemRecord; isCardExp?: boolean } | null>(null);
+  const [shareModal, setShareModal] = useState<{ item: ItemRecord | CardExpense; isCardExp?: boolean } | null>(null);
   const [shareEmail, setShareEmail] = useState('');
   const [shareValue, setShareValue] = useState('');
   const [shareLoading, setShareLoading] = useState(false);
@@ -319,7 +319,30 @@ export default function App() {
     }
 
     const item = shareModal.item;
-    const totalValue = (Number(item.pagamento) || 0) + (Number(item.vale) || 0);
+    let totalValue = 0;
+    let expenseType = '';
+    
+    if (shareModal.isCardExp) {
+      const exp = item as CardExpense;
+      totalValue = Number(exp.value) || 0;
+      // Para itens individuais, tentamos descobrir se o cartão pai é pagamento ou vale
+      const parentCard = items.find(i => i.id === exp.card_item_id);
+      expenseType = parentCard?.type === 'card_pagamento' ? 'card_pagamento_item' : 'card_vale_item';
+    } else {
+      const rec = item as ItemRecord;
+      expenseType = rec.type;
+      if (rec.type.startsWith('card_')) {
+        const isPagamento = rec.type === 'card_pagamento';
+        const amountField = isPagamento ? 'pagamento' : 'vale';
+        const baseVal = Number(rec[amountField as keyof ItemRecord] || 0);
+        const exps = cardExpenses[rec.id] || [];
+        const expsSum = exps.reduce((s, e) => s + Number(e.value || 0), 0);
+        totalValue = baseVal + expsSum;
+      } else {
+        totalValue = (Number(rec.pagamento) || 0) + (Number(rec.vale) || 0);
+      }
+    }
+
     const sv = Number(shareValue);
 
     const { error } = await supabase.from('expense_shares').insert({
@@ -331,7 +354,7 @@ export default function App() {
       expense_name: item.name || 'Despesa sem nome',
       expense_value: totalValue,
       share_value: sv,
-      expense_type: item.type,
+      expense_type: expenseType,
       source_item_id: item.id,
       source_month_id: currentMonthId,
     });
@@ -1602,6 +1625,9 @@ export default function App() {
                                               <button onClick={() => toggleRecurringCardExpense(item.id, exp)} className={`p-1 rounded ${exp.is_recurring ? 'text-emerald-400 bg-emerald-500/10' : 'text-white/20'}`} title="Recorrente">
                                                 <Repeat className="w-2.5 h-2.5" />
                                               </button>
+                                              <button onClick={() => { setShareModal({ item: exp, isCardExp: true }); setShareValue(String((Number(exp.value) || 0) / 2)); }} className="p-1 text-white/20 hover:text-indigo-400" title="Compartilhar">
+                                                <Share2 className="w-2.5 h-2.5" />
+                                              </button>
 
                                               {isExpEdit ? (
                                                 <button onClick={() => saveCardExpense(item, exp)} className="p-1 bg-emerald-500/20 text-emerald-400 rounded">
@@ -1763,62 +1789,84 @@ export default function App() {
           </div>
         )}
 
-        {shareModal && (
-          <>
-            <div
-              className="fixed inset-0 bg-black/70 z-[80] backdrop-blur-sm"
-              onClick={() => {
-                setShareModal(null);
-                setShareEmail('');
-                setShareValue('');
-                setShareMsg(null);
-              }}
-            />
+        {shareModal && (() => {
+          const isCardExp = shareModal.isCardExp;
+          const item = shareModal.item;
+          
+          const modalTotal = isCardExp 
+            ? (item as CardExpense).value || 0
+            : (() => {
+                const rec = item as ItemRecord;
+                if (rec.type.startsWith('card_')) {
+                  const isPagamento = rec.type === 'card_pagamento';
+                  const baseVal = Number(rec[isPagamento ? 'pagamento' : 'vale'] || 0);
+                  const exps = cardExpenses[rec.id] || [];
+                  const expsSum = exps.reduce((s, e) => s + Number(e.value || 0), 0);
+                  return baseVal + expsSum;
+                }
+                return (Number(rec.pagamento) || 0) + (Number(rec.vale) || 0);
+              })();
 
-            <div className="fixed inset-0 z-[90] flex items-center justify-center p-4">
-              <div className="bg-[#1a1d23] border border-white/10 rounded-3xl w-full max-w-sm shadow-2xl">
-                <div className="flex items-center gap-3 px-6 py-4 border-b border-white/10">
-                  <div className="p-2 bg-indigo-500/10 rounded-xl">
-                    <Share2 className="w-4 h-4 text-indigo-400" />
-                  </div>
-                  <div>
-                    <h3 className="font-bold text-sm">Compartilhar Despesa</h3>
-                    <p className="text-white/40 text-xs truncate max-w-[180px]">{shareModal.item.name || 'Sem nome'}</p>
-                  </div>
-                  <button
-                    onClick={() => {
-                      setShareModal(null);
-                      setShareEmail('');
-                      setShareValue('');
-                      setShareMsg(null);
-                    }}
-                    className="ml-auto p-1.5 text-white/40 hover:text-white rounded-lg"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
-                </div>
+          const modalType = isCardExp
+            ? (items.find(i => i.id === (item as CardExpense).card_item_id)?.type.includes('pagamento') ? 'Pagamento' : 'Adiantamento')
+            : ((item as ItemRecord).type?.includes('pagamento') ? 'Pagamento' : 'Adiantamento');
 
-                <div className="p-6 space-y-4">
-                  {shareMsg && (
-                    <div className={`p-3 rounded-xl text-xs font-medium ${shareMsg.type === 'success' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'}`}>
-                      {shareMsg.text}
+          return (
+            <>
+              <div
+                className="fixed inset-0 bg-black/70 z-[80] backdrop-blur-sm"
+                onClick={() => {
+                  setShareModal(null);
+                  setShareEmail('');
+                  setShareValue('');
+                  setShareMsg(null);
+                }}
+              />
+
+              <div className="fixed inset-0 z-[90] flex items-center justify-center p-4">
+                <div className="bg-[#1a1d23] border border-white/10 rounded-3xl w-full max-w-sm shadow-2xl">
+                  <div className="flex items-center gap-3 px-6 py-4 border-b border-white/10">
+                    <div className="p-2 bg-indigo-500/10 rounded-xl">
+                      <Share2 className="w-4 h-4 text-indigo-400" />
                     </div>
-                  )}
-
-                  <div className="bg-white/3 border border-white/8 rounded-xl p-3 flex items-center justify-between">
                     <div>
-                      <p className="text-[10px] text-white/40 uppercase tracking-wider font-bold">Valor total</p>
-                      <p className="text-lg font-mono font-bold text-white">
-                        {formatCurrency((Number(shareModal.item.pagamento) || 0) + (Number(shareModal.item.vale) || 0))}
-                      </p>
+                      <h3 className="font-bold text-sm">Compartilhar Despesa</h3>
+                      <p className="text-white/40 text-xs truncate max-w-[180px]">{item.name || 'Sem nome'}</p>
                     </div>
-                    <div className="text-right">
-                      <p className="text-[10px] text-white/40 uppercase tracking-wider font-bold">Conta</p>
-                      <p className="text-xs font-bold text-indigo-400">
-                        {shareModal.item.type.includes('pagamento') ? 'Pagamento' : 'Adiantamento'}
-                      </p>
-                    </div>
+                    <button
+                      onClick={() => {
+                        setShareModal(null);
+                        setShareEmail('');
+                        setShareValue('');
+                        setShareMsg(null);
+                      }}
+                      className="ml-auto p-1.5 text-white/40 hover:text-white rounded-lg"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
                   </div>
+
+                  <div className="p-6 space-y-4">
+                    {shareMsg && (
+                      <div className={`p-3 rounded-xl text-xs font-medium ${shareMsg.type === 'success' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'}`}>
+                        {shareMsg.text}
+                      </div>
+                    )}
+
+                    <div className="bg-white/3 border border-white/8 rounded-xl p-3 flex items-center justify-between">
+                      <div>
+                        <p className="text-[10px] text-white/40 uppercase tracking-wider font-bold">Valor total</p>
+                        <p className="text-lg font-mono font-bold text-white">
+                          {formatCurrency(modalTotal)}
+                        </p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-[10px] text-white/40 uppercase tracking-wider font-bold">Conta</p>
+                        <p className="text-xs font-bold text-indigo-400">
+                          {modalType}
+                        </p>
+                      </div>
+                    </div>
 
                   <div>
                     <label className="block text-[10px] font-bold text-white/40 uppercase tracking-widest mb-1.5">E-mail do usuário</label>
@@ -1864,12 +1912,13 @@ export default function App() {
                       {shareLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Share2 className="w-4 h-4" />}
                       Compartilhar
                     </button>
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
-          </>
-        )}
+            </>
+          );
+        })()}
       </main>
 
       <nav className="fixed bottom-0 left-0 right-0 lg:hidden z-50 bg-[#0f1115]/95 backdrop-blur-2xl border-t border-white/10">
