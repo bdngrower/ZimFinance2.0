@@ -1393,7 +1393,7 @@ export default function App() {
 
               </div>
             </div>
-        )}
+          )}
 
           {/* ======= MODAL: COMPARTILHAR DESPESA ======= */}
           {shareModal && (
@@ -1506,7 +1506,4 @@ export default function App() {
       </nav>
     </div>
   );
-}
-}
-}
 }
