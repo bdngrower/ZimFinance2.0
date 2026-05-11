@@ -733,9 +733,10 @@ export default function App() {
       return n;
     });
 
-    // Primeiro exclui qualquer compartilhamento vinculado a este item
+    // Primeiro exclui qualquer compartilhamento vinculado a este item e seus filhos (se for cartão)
     // O trigger no banco cuidará de excluir as cópias nas contas de outros usuários
-    await supabase.from('expense_shares').delete().eq('source_item_id', id);
+    const childExpIds = (cardExpenses[id] || []).map(e => e.id);
+    await supabase.from('expense_shares').delete().in('source_item_id', [id, ...childExpIds]);
 
     await supabase.from('items').delete().eq('id', id);
 
