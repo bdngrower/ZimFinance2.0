@@ -185,6 +185,11 @@ export default function App() {
   const [shareLoading, setShareLoading] = useState(false);
   const [shareMsg, setShareMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
+  const [recurrenceModal, setRecurrenceModal] = useState<{ item: ItemRecord | CardExpense; isCardExp?: boolean; cardId?: string } | null>(null);
+  const [recType, setRecType] = useState<'continuous' | 'limited'>('continuous');
+  const [recTargetMonth, setRecTargetMonth] = useState<number>(12);
+  const [recTargetYear, setRecTargetYear] = useState<number>(currentYear);
+
   const currentMonthId = `${currentYear}-${String(currentMonthIndex + 1).padStart(2, '0')}`;
 
   useEffect(() => {
@@ -640,6 +645,26 @@ export default function App() {
       })
       .eq('id', item.id);
 
+    let updateFuture = false;
+    if (item.is_recurring && item.recurring_group_id) {
+      updateFuture = window.confirm(
+        'Deseja alterar este item apenas deste mês ou de todos os meses futuros também?\n\n[OK] = Todos os meses futuros\n[Cancelar] = Apenas este mês',
+      );
+    }
+
+    if (updateFuture && item.recurring_group_id) {
+      await supabase
+        .from('items')
+        .update({
+          name: item.name,
+          pagamento: item.pagamento,
+          vale: item.vale,
+          type: item.type,
+        })
+        .eq('recurring_group_id', item.recurring_group_id)
+        .gt('month_id', currentMonthId);
+    }
+
     setEditingItems(prev => ({ ...prev, [item.id]: false }));
     fetchYearData();
   };
@@ -680,23 +705,105 @@ export default function App() {
     fetchYearData();
   };
 
+  const ensureMonthExists = async (monthId: string) => {
+    const { data: monthData } = await supabase
+      .from('months')
+      .select('id')
+      .eq('id', monthId)
+      .maybeSingle();
+
+    if (!monthData) {
+      const [y, m] = monthId.split('-');
+      await supabase.from('months').insert({
+        id: monthId,
+        year: parseInt(y, 10),
+        month_name: MONTH_NAMES[parseInt(m, 10) - 1],
+      });
+    }
+  };
+
+  const ensureCardExistsInMonth = async (cardItem: ItemRecord, targetMonthId: string): Promise<string | null> => {
+    let query = supabase
+      .from('items')
+      .select('id')
+      .eq('month_id', targetMonthId);
+      
+    if (cardItem.recurring_group_id) {
+      query = query.eq('recurring_group_id', cardItem.recurring_group_id);
+    } else {
+      query = query.eq('name', cardItem.name);
+    }
+    
+    const { data } = await query.maybeSingle();
+    if (data) return data.id;
+
+    const newCardId = Math.random().toString(36).substr(2, 9);
+    const { error } = await supabase.from('items').insert({
+      id: newCardId,
+      month_id: targetMonthId,
+      type: cardItem.type,
+      name: cardItem.name,
+      pagamento: cardItem.pagamento,
+      vale: cardItem.vale,
+      is_recurring: cardItem.is_recurring,
+      recurring_group_id: cardItem.recurring_group_id,
+    });
+    
+    if (error) {
+      console.error("Error creating card in target month:", error);
+      return null;
+    }
+    return newCardId;
+  };
+
+  const getMonthsRange = (startMonthId: string, endMonthId: string): string[] => {
+    const months: string[] = [];
+    let [currentY, currentM] = startMonthId.split('-').map(Number);
+    const [endY, endM] = endMonthId.split('-').map(Number);
+    
+    while (currentY < endY || (currentY === endY && currentM < endM)) {
+      currentM += 1;
+      if (currentM > 12) {
+        currentM = 1;
+        currentY += 1;
+      }
+      months.push(`${currentY}-${String(currentM).padStart(2, '0')}`);
+    }
+    return months;
+  };
+
   const toggleRecurring = async (item: ItemRecord) => {
     const isNowRecurring = !item.is_recurring;
-    const groupId = item.recurring_group_id || Math.random().toString(36).substr(2, 9);
+    if (isNowRecurring) {
+      setRecType('continuous');
+      setRecTargetMonth(currentMonthIndex + 1);
+      setRecTargetYear(currentYear);
+      setRecurrenceModal({ item, isCardExp: false });
+    } else {
+      const removeFuture = window.confirm(
+        "Deseja remover a recorrência deste item para todos os meses futuros também?\n\n[OK] = Sim, remover do futuro\n[Cancelar] = Não, apenas deste mês"
+      );
 
-    setItems(prev =>
-      prev.map(i =>
-        i.id === item.id ? { ...i, is_recurring: isNowRecurring, recurring_group_id: groupId } : i,
-      ),
-    );
+      setItems(prev =>
+        prev.map(i =>
+          i.id === item.id ? { ...i, is_recurring: false } : i,
+        ),
+      );
+      await supabase
+        .from('items')
+        .update({ is_recurring: false })
+        .eq('id', item.id);
 
-    await supabase
-      .from('items')
-      .update({
-        is_recurring: isNowRecurring,
-        recurring_group_id: groupId,
-      })
-      .eq('id', item.id);
+      if (removeFuture && item.recurring_group_id) {
+        await supabase
+          .from('items')
+          .update({ is_recurring: false })
+          .eq('recurring_group_id', item.recurring_group_id)
+          .gt('month_id', currentMonthId);
+      }
+      
+      fetchYearData();
+    }
   };
 
   const addItem = async (type: string) => {
@@ -792,6 +899,45 @@ export default function App() {
       .update({ name: exp.name, value: Number(exp.value) || 0 })
       .eq('id', exp.id);
 
+    let updateFuture = false;
+    if (exp.is_recurring && exp.recurring_group_id) {
+      updateFuture = window.confirm(
+        'Deseja alterar esta compra apenas deste mês ou de todos os meses futuros também?\n\n[OK] = Todos os meses futuros\n[Cancelar] = Apenas este mês',
+      );
+    }
+
+    if (updateFuture && exp.recurring_group_id) {
+      const { data: relatedExps } = await supabase
+        .from('card_expenses')
+        .select('id, card_item_id')
+        .eq('recurring_group_id', exp.recurring_group_id);
+        
+      if (relatedExps && relatedExps.length > 0) {
+        const cardItemIds = relatedExps.map(e => e.card_item_id);
+        const { data: relatedCards } = await supabase
+          .from('items')
+          .select('id, month_id')
+          .in('id', cardItemIds);
+          
+        if (relatedCards && relatedCards.length > 0) {
+          const futureCardIds = relatedCards
+            .filter(c => c.month_id > currentMonthId)
+            .map(c => c.id);
+            
+          const futureExpIds = relatedExps
+            .filter(e => futureCardIds.includes(e.card_item_id))
+            .map(e => e.id);
+            
+          if (futureExpIds.length > 0) {
+            await supabase
+              .from('card_expenses')
+              .update({ name: exp.name, value: Number(exp.value) || 0 })
+              .in('id', futureExpIds);
+          }
+        }
+      }
+    }
+
     setEditingCardExpenses(prev => ({ ...prev, [exp.id]: false }));
     setCardExpenses(prev => ({
       ...prev,
@@ -806,38 +952,247 @@ export default function App() {
     const exp = expenses.find(e => e.id === expId);
     if (!exp) return;
 
+    let deleteFuture = false;
     if (exp.is_recurring && exp.recurring_group_id) {
-      window.confirm('Deseja excluir esta compra apenas deste mês ou de todos os meses futuros também?');
+      deleteFuture = window.confirm(
+        'Deseja excluir esta compra apenas deste mês ou de todos os meses futuros também?\n\n[OK] = Todos os meses futuros\n[Cancelar] = Apenas este mês',
+      );
     }
 
-    const remaining = expenses.filter(e => e.id !== expId);
-    setCardExpenses(prev => ({ ...prev, [cardItem.id]: remaining }));
-    // Exclui compartilhamentos vinculados a esta despesa individual
-    await supabase.from('expense_shares').delete().eq('source_item_id', expId);
-
-    await supabase.from('card_expenses').delete().eq('id', expId);
+    if (deleteFuture && exp.recurring_group_id) {
+      const { data: relatedExps } = await supabase
+        .from('card_expenses')
+        .select('id, card_item_id')
+        .eq('recurring_group_id', exp.recurring_group_id);
+        
+      if (relatedExps && relatedExps.length > 0) {
+        const cardItemIds = relatedExps.map(e => e.card_item_id);
+        const { data: relatedCards } = await supabase
+          .from('items')
+          .select('id, month_id')
+          .in('id', cardItemIds);
+          
+        if (relatedCards && relatedCards.length > 0) {
+          const futureCardIds = relatedCards
+            .filter(c => c.month_id >= currentMonthId)
+            .map(c => c.id);
+            
+          const futureExpIds = relatedExps
+            .filter(e => futureCardIds.includes(e.card_item_id))
+            .map(e => e.id);
+            
+          if (futureExpIds.length > 0) {
+            await supabase.from('expense_shares').delete().in('source_item_id', futureExpIds);
+            await supabase.from('card_expenses').delete().in('id', futureExpIds);
+          }
+        }
+      }
+    } else {
+      const remaining = expenses.filter(e => e.id !== expId);
+      setCardExpenses(prev => ({ ...prev, [cardItem.id]: remaining }));
+      await supabase.from('expense_shares').delete().eq('source_item_id', expId);
+      await supabase.from('card_expenses').delete().eq('id', expId);
+    }
 
     fetchYearData();
   };
 
   const toggleRecurringCardExpense = async (cardId: string, exp: CardExpense) => {
     const isNowRecurring = !exp.is_recurring;
-    const groupId = exp.recurring_group_id || Math.random().toString(36).substr(2, 9);
+    if (isNowRecurring) {
+      setRecType('continuous');
+      setRecTargetMonth(currentMonthIndex + 1);
+      setRecTargetYear(currentYear);
+      setRecurrenceModal({ item: exp, isCardExp: true, cardId });
+    } else {
+      const removeFuture = window.confirm(
+        "Deseja remover a recorrência desta despesa para todos os meses futuros também?\n\n[OK] = Sim, remover do futuro\n[Cancelar] = Não, apenas deste mês"
+      );
 
-    setCardExpenses(prev => ({
-      ...prev,
-      [cardId]: (prev[cardId] || []).map(e =>
-        e.id === exp.id ? { ...e, is_recurring: isNowRecurring, recurring_group_id: groupId } : e,
-      ),
-    }));
+      setCardExpenses(prev => ({
+        ...prev,
+        [cardId]: (prev[cardId] || []).map(e =>
+          e.id === exp.id ? { ...e, is_recurring: false } : e,
+        ),
+      }));
+      await supabase
+        .from('card_expenses')
+        .update({ is_recurring: false })
+        .eq('id', exp.id);
 
-    await supabase
-      .from('card_expenses')
-      .update({
-        is_recurring: isNowRecurring,
-        recurring_group_id: groupId,
-      })
-      .eq('id', exp.id);
+      if (removeFuture && exp.recurring_group_id) {
+        const { data: relatedExps } = await supabase
+          .from('card_expenses')
+          .select('id, card_item_id')
+          .eq('recurring_group_id', exp.recurring_group_id);
+
+        if (relatedExps && relatedExps.length > 0) {
+          const cardItemIds = relatedExps.map(re => re.card_item_id);
+          const { data: relatedCards } = await supabase
+            .from('items')
+            .select('id, month_id')
+            .in('id', cardItemIds);
+
+          if (relatedCards && relatedCards.length > 0) {
+            const futureCardIds = relatedCards
+              .filter(c => c.month_id > currentMonthId)
+              .map(c => c.id);
+
+            const futureExpIds = relatedExps
+              .filter(re => futureCardIds.includes(re.card_item_id))
+              .map(re => re.id);
+
+            if (futureExpIds.length > 0) {
+              await supabase
+                .from('card_expenses')
+                .update({ is_recurring: false })
+                .in('id', futureExpIds);
+            }
+          }
+        }
+      }
+
+      fetchYearData();
+    }
+  };
+
+  const saveRecurrenceConfig = async () => {
+    if (!recurrenceModal) return;
+
+    const { item, isCardExp, cardId } = recurrenceModal;
+    const groupId = item.recurring_group_id || Math.random().toString(36).substr(2, 9);
+    
+    let nextMonths: string[] = [];
+    let endMonthId: string | null = null;
+    
+    if (recType === 'limited') {
+      const targetMonthStr = String(recTargetMonth).padStart(2, '0');
+      endMonthId = `${recTargetYear}-${targetMonthStr}`;
+      
+      if (endMonthId < currentMonthId) {
+        alert("A data limite não pode ser no passado.");
+        return;
+      }
+      
+      nextMonths = getMonthsRange(currentMonthId, endMonthId);
+    } else {
+      // Continuous: propagate to all existing future months
+      const { data: futureMonths } = await supabase
+        .from('months')
+        .select('id')
+        .gt('id', currentMonthId);
+      if (futureMonths) {
+        nextMonths = futureMonths.map(m => m.id);
+      }
+    }
+
+    if (isCardExp) {
+      const exp = item as CardExpense;
+      const cId = cardId || exp.card_item_id;
+      const cardItem = items.find(i => i.id === cId);
+      if (!cardItem) return;
+
+      // Update current month expense
+      setCardExpenses(prev => ({
+        ...prev,
+        [cId]: (prev[cId] || []).map(e =>
+          e.id === exp.id ? { ...e, is_recurring: true, recurring_group_id: groupId } : e,
+        ),
+      }));
+      await supabase
+        .from('card_expenses')
+        .update({ is_recurring: true, recurring_group_id: groupId })
+        .eq('id', exp.id);
+
+      // Copy to target months
+      for (let idx = 0; idx < nextMonths.length; idx++) {
+        const targetMonthId = nextMonths[idx];
+        const isLastMonth = recType === 'limited' && targetMonthId === endMonthId;
+
+        await ensureMonthExists(targetMonthId);
+        const targetCardId = await ensureCardExistsInMonth(cardItem, targetMonthId);
+
+        if (targetCardId) {
+          // Check if card expense already exists
+          const { data: existingExp } = await supabase
+            .from('card_expenses')
+            .select('id')
+            .eq('card_item_id', targetCardId)
+            .eq('recurring_group_id', groupId)
+            .maybeSingle();
+
+          if (!existingExp) {
+            await supabase.from('card_expenses').insert({
+              id: Math.random().toString(36).substr(2, 9),
+              card_item_id: targetCardId,
+              name: exp.name,
+              value: exp.value,
+              is_recurring: !isLastMonth,
+              recurring_group_id: groupId,
+            });
+          } else {
+            await supabase
+              .from('card_expenses')
+              .update({ is_recurring: !isLastMonth, name: exp.name, value: exp.value })
+              .eq('id', existingExp.id);
+          }
+        }
+      }
+    } else {
+      const rec = item as ItemRecord;
+      
+      // Update current month item
+      setItems(prev =>
+        prev.map(i =>
+          i.id === rec.id ? { ...i, is_recurring: true, recurring_group_id: groupId } : i,
+        ),
+      );
+      await supabase
+        .from('items')
+        .update({ is_recurring: true, recurring_group_id: groupId })
+        .eq('id', rec.id);
+
+      // Copy to target months
+      for (let idx = 0; idx < nextMonths.length; idx++) {
+        const targetMonthId = nextMonths[idx];
+        const isLastMonth = recType === 'limited' && targetMonthId === endMonthId;
+
+        await ensureMonthExists(targetMonthId);
+
+        const { data: existingItem } = await supabase
+          .from('items')
+          .select('id')
+          .eq('month_id', targetMonthId)
+          .eq('recurring_group_id', groupId)
+          .maybeSingle();
+
+        if (!existingItem) {
+          await supabase.from('items').insert({
+            id: Math.random().toString(36).substr(2, 9),
+            month_id: targetMonthId,
+            type: rec.type,
+            name: rec.name,
+            pagamento: rec.pagamento,
+            vale: rec.vale,
+            is_recurring: !isLastMonth,
+            recurring_group_id: groupId,
+          });
+        } else {
+          await supabase
+            .from('items')
+            .update({
+              is_recurring: !isLastMonth,
+              name: rec.name,
+              pagamento: rec.pagamento,
+              vale: rec.vale,
+            })
+            .eq('id', existingItem.id);
+        }
+      }
+    }
+
+    setRecurrenceModal(null);
+    fetchData(); // We call fetchData to reload the current month's items and card expenses if they changed (e.g. if we are on a month that got edited).
   };
 
   const updateIncomeLocal = (field: string, value: number) => {
@@ -1949,6 +2304,118 @@ export default function App() {
                       {shareLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Share2 className="w-4 h-4" />}
                       Compartilhar
                     </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </>
+          );
+        })()}
+
+        {recurrenceModal && (() => {
+          const item = recurrenceModal.item;
+          return (
+            <>
+              <div
+                className="fixed inset-0 bg-black/70 z-[80] backdrop-blur-sm"
+                onClick={() => setRecurrenceModal(null)}
+              />
+
+              <div className="fixed inset-0 z-[90] flex items-center justify-center p-4">
+                <div className="bg-[#1a1d23] border border-white/10 rounded-3xl w-full max-w-sm shadow-2xl">
+                  <div className="flex items-center gap-3 px-6 py-4 border-b border-white/10">
+                    <div className="p-2 bg-emerald-500/10 rounded-xl">
+                      <Repeat className="w-4 h-4 text-emerald-400" />
+                    </div>
+                    <div>
+                      <h3 className="font-bold text-sm">Configurar Recorrência</h3>
+                      <p className="text-white/40 text-xs truncate max-w-[180px]">{item.name || 'Sem nome'}</p>
+                    </div>
+                    <button
+                      onClick={() => setRecurrenceModal(null)}
+                      className="ml-auto p-1.5 text-white/40 hover:text-white rounded-lg"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+
+                  <div className="p-6 space-y-4">
+                    <div>
+                      <label className="block text-[10px] font-bold text-white/40 uppercase tracking-widest mb-2">Tipo de Recorrência</label>
+                      <div className="grid grid-cols-2 gap-2 bg-black/20 p-1 rounded-xl border border-white/5">
+                        <button
+                          type="button"
+                          onClick={() => setRecType('continuous')}
+                          className={`py-2 px-3 rounded-lg text-xs font-bold transition-all ${
+                            recType === 'continuous'
+                              ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                              : 'text-white/40 hover:text-white border border-transparent'
+                          }`}
+                        >
+                          Indefinida
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setRecType('limited')}
+                          className={`py-2 px-3 rounded-lg text-xs font-bold transition-all ${
+                            recType === 'limited'
+                              ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                              : 'text-white/40 hover:text-white border border-transparent'
+                          }`}
+                        >
+                          Prazo Limite
+                        </button>
+                      </div>
+                    </div>
+
+                    {recType === 'limited' && (
+                      <div className="space-y-3">
+                        <div>
+                          <label className="block text-[10px] font-bold text-white/40 uppercase tracking-widest mb-1.5">Válido até o mês</label>
+                          <select
+                            value={recTargetMonth}
+                            onChange={(e) => setRecTargetMonth(Number(e.target.value))}
+                            className="w-full bg-black/20 border border-white/10 focus:border-emerald-500 p-3 rounded-xl text-sm text-white outline-none transition-all"
+                          >
+                            {MONTH_NAMES.map((name, idx) => (
+                              <option key={idx} value={idx + 1} className="bg-[#1a1d23] text-white">
+                                {name}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+
+                        <div>
+                          <label className="block text-[10px] font-bold text-white/40 uppercase tracking-widest mb-1.5">Ano limite</label>
+                          <select
+                            value={recTargetYear}
+                            onChange={(e) => setRecTargetYear(Number(e.target.value))}
+                            className="w-full bg-black/20 border border-white/10 focus:border-emerald-500 p-3 rounded-xl text-sm text-white outline-none transition-all"
+                          >
+                            {Array.from({ length: 6 }, (_, i) => currentYear + i).map((year) => (
+                              <option key={year} value={year} className="bg-[#1a1d23] text-white">
+                                {year}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="flex gap-3 pt-2">
+                      <button
+                        onClick={() => setRecurrenceModal(null)}
+                        className="flex-1 py-3 rounded-xl border border-white/10 text-white/50 text-sm font-bold hover:bg-white/5 transition-all"
+                      >
+                        Cancelar
+                      </button>
+                      <button
+                        onClick={saveRecurrenceConfig}
+                        className="flex-1 py-3 rounded-xl bg-gradient-to-r from-emerald-500 to-emerald-600 text-white text-sm font-bold hover:from-emerald-400 hover:to-emerald-500 transition-all flex items-center justify-center gap-2"
+                      >
+                        <Repeat className="w-4 h-4" />
+                        Salvar
+                      </button>
                     </div>
                   </div>
                 </div>
