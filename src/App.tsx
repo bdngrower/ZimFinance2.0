@@ -189,6 +189,7 @@ export default function App() {
   const [recType, setRecType] = useState<'continuous' | 'limited'>('continuous');
   const [recTargetMonth, setRecTargetMonth] = useState<number>(12);
   const [recTargetYear, setRecTargetYear] = useState<number>(currentYear);
+  const [recLoading, setRecLoading] = useState(false);
 
   const currentMonthId = `${currentYear}-${String(currentMonthIndex + 1).padStart(2, '0')}`;
 
@@ -1057,142 +1058,146 @@ export default function App() {
   };
 
   const saveRecurrenceConfig = async () => {
-    if (!recurrenceModal) return;
+    if (!recurrenceModal || recLoading) return;
+    setRecLoading(true);
 
-    const { item, isCardExp, cardId } = recurrenceModal;
-    const groupId = item.recurring_group_id || Math.random().toString(36).substr(2, 9);
-    
-    let nextMonths: string[] = [];
-    let endMonthId: string | null = null;
-    
-    if (recType === 'limited') {
-      const targetMonthStr = String(recTargetMonth).padStart(2, '0');
-      endMonthId = `${recTargetYear}-${targetMonthStr}`;
+    try {
+      const { item, isCardExp, cardId } = recurrenceModal;
+      const groupId = item.recurring_group_id || Math.random().toString(36).substr(2, 9);
       
-      if (endMonthId < currentMonthId) {
-        alert("A data limite não pode ser no passado.");
-        return;
-      }
+      let nextMonths: string[] = [];
+      let endMonthId: string | null = null;
       
-      nextMonths = getMonthsRange(currentMonthId, endMonthId);
-    } else {
-      // Continuous: propagate to all existing future months
-      const { data: futureMonths } = await supabase
-        .from('months')
-        .select('id')
-        .gt('id', currentMonthId);
-      if (futureMonths) {
-        nextMonths = futureMonths.map(m => m.id);
+      if (recType === 'limited') {
+        const targetMonthStr = String(recTargetMonth).padStart(2, '0');
+        endMonthId = `${recTargetYear}-${targetMonthStr}`;
+        
+        if (endMonthId < currentMonthId) {
+          alert("A data limite não pode ser no passado.");
+          return;
+        }
+        
+        nextMonths = getMonthsRange(currentMonthId, endMonthId);
+      } else {
+        // Continuous: propagate to all existing future months
+        const { data: futureMonths } = await supabase
+          .from('months')
+          .select('id')
+          .gt('id', currentMonthId);
+        if (futureMonths) {
+          nextMonths = futureMonths.map(m => m.id);
+        }
       }
-    }
 
-    if (isCardExp) {
-      const exp = item as CardExpense;
-      const cId = cardId || exp.card_item_id;
-      const cardItem = items.find(i => i.id === cId);
-      if (!cardItem) return;
+      if (isCardExp) {
+        const exp = item as CardExpense;
+        const cId = cardId || exp.card_item_id;
+        const cardItem = items.find(i => i.id === cId);
+        if (!cardItem) return;
 
-      // Update current month expense
-      setCardExpenses(prev => ({
-        ...prev,
-        [cId]: (prev[cId] || []).map(e =>
-          e.id === exp.id ? { ...e, is_recurring: true, recurring_group_id: groupId } : e,
-        ),
-      }));
-      await supabase
-        .from('card_expenses')
-        .update({ is_recurring: true, recurring_group_id: groupId })
-        .eq('id', exp.id);
+        // Update current month expense
+        setCardExpenses(prev => ({
+          ...prev,
+          [cId]: (prev[cId] || []).map(e =>
+            e.id === exp.id ? { ...e, is_recurring: true, recurring_group_id: groupId } : e,
+          ),
+        }));
+        await supabase
+          .from('card_expenses')
+          .update({ is_recurring: true, recurring_group_id: groupId })
+          .eq('id', exp.id);
 
-      // Copy to target months
-      for (let idx = 0; idx < nextMonths.length; idx++) {
-        const targetMonthId = nextMonths[idx];
-        const isLastMonth = recType === 'limited' && targetMonthId === endMonthId;
+        // Copy to target months
+        for (let idx = 0; idx < nextMonths.length; idx++) {
+          const targetMonthId = nextMonths[idx];
+          const isLastMonth = recType === 'limited' && targetMonthId === endMonthId;
 
-        await ensureMonthExists(targetMonthId);
-        const targetCardId = await ensureCardExistsInMonth(cardItem, targetMonthId);
+          await ensureMonthExists(targetMonthId);
+          const targetCardId = await ensureCardExistsInMonth(cardItem, targetMonthId);
 
-        if (targetCardId) {
-          // Check if card expense already exists
-          const { data: existingExp } = await supabase
-            .from('card_expenses')
+          if (targetCardId) {
+            const { data: existingExp } = await supabase
+              .from('card_expenses')
+              .select('id')
+              .eq('card_item_id', targetCardId)
+              .eq('recurring_group_id', groupId)
+              .maybeSingle();
+
+            if (!existingExp) {
+              await supabase.from('card_expenses').insert({
+                id: Math.random().toString(36).substr(2, 9),
+                card_item_id: targetCardId,
+                name: exp.name,
+                value: exp.value,
+                is_recurring: !isLastMonth,
+                recurring_group_id: groupId,
+              });
+            } else {
+              await supabase
+                .from('card_expenses')
+                .update({ is_recurring: !isLastMonth, name: exp.name, value: exp.value })
+                .eq('id', existingExp.id);
+            }
+          }
+        }
+      } else {
+        const rec = item as ItemRecord;
+        
+        // Update current month item
+        setItems(prev =>
+          prev.map(i =>
+            i.id === rec.id ? { ...i, is_recurring: true, recurring_group_id: groupId } : i,
+          ),
+        );
+        await supabase
+          .from('items')
+          .update({ is_recurring: true, recurring_group_id: groupId })
+          .eq('id', rec.id);
+
+        // Copy to target months
+        for (let idx = 0; idx < nextMonths.length; idx++) {
+          const targetMonthId = nextMonths[idx];
+          const isLastMonth = recType === 'limited' && targetMonthId === endMonthId;
+
+          await ensureMonthExists(targetMonthId);
+
+          const { data: existingItem } = await supabase
+            .from('items')
             .select('id')
-            .eq('card_item_id', targetCardId)
+            .eq('month_id', targetMonthId)
             .eq('recurring_group_id', groupId)
             .maybeSingle();
 
-          if (!existingExp) {
-            await supabase.from('card_expenses').insert({
+          if (!existingItem) {
+            await supabase.from('items').insert({
               id: Math.random().toString(36).substr(2, 9),
-              card_item_id: targetCardId,
-              name: exp.name,
-              value: exp.value,
+              month_id: targetMonthId,
+              type: rec.type,
+              name: rec.name,
+              pagamento: rec.pagamento,
+              vale: rec.vale,
               is_recurring: !isLastMonth,
               recurring_group_id: groupId,
             });
           } else {
             await supabase
-              .from('card_expenses')
-              .update({ is_recurring: !isLastMonth, name: exp.name, value: exp.value })
-              .eq('id', existingExp.id);
+              .from('items')
+              .update({
+                is_recurring: !isLastMonth,
+                name: rec.name,
+                pagamento: rec.pagamento,
+                vale: rec.vale,
+              })
+              .eq('id', existingItem.id);
           }
         }
       }
-    } else {
-      const rec = item as ItemRecord;
-      
-      // Update current month item
-      setItems(prev =>
-        prev.map(i =>
-          i.id === rec.id ? { ...i, is_recurring: true, recurring_group_id: groupId } : i,
-        ),
-      );
-      await supabase
-        .from('items')
-        .update({ is_recurring: true, recurring_group_id: groupId })
-        .eq('id', rec.id);
 
-      // Copy to target months
-      for (let idx = 0; idx < nextMonths.length; idx++) {
-        const targetMonthId = nextMonths[idx];
-        const isLastMonth = recType === 'limited' && targetMonthId === endMonthId;
-
-        await ensureMonthExists(targetMonthId);
-
-        const { data: existingItem } = await supabase
-          .from('items')
-          .select('id')
-          .eq('month_id', targetMonthId)
-          .eq('recurring_group_id', groupId)
-          .maybeSingle();
-
-        if (!existingItem) {
-          await supabase.from('items').insert({
-            id: Math.random().toString(36).substr(2, 9),
-            month_id: targetMonthId,
-            type: rec.type,
-            name: rec.name,
-            pagamento: rec.pagamento,
-            vale: rec.vale,
-            is_recurring: !isLastMonth,
-            recurring_group_id: groupId,
-          });
-        } else {
-          await supabase
-            .from('items')
-            .update({
-              is_recurring: !isLastMonth,
-              name: rec.name,
-              pagamento: rec.pagamento,
-              vale: rec.vale,
-            })
-            .eq('id', existingItem.id);
-        }
-      }
+      setRecurrenceModal(null);
+      fetchData();
+    } finally {
+      setRecLoading(false);
     }
-
-    setRecurrenceModal(null);
-    fetchData(); // We call fetchData to reload the current month's items and card expenses if they changed (e.g. if we are on a month that got edited).
   };
 
   const updateIncomeLocal = (field: string, value: number) => {
@@ -2402,19 +2407,30 @@ export default function App() {
                       </div>
                     )}
 
+                    {recLoading && (
+                      <div className="space-y-2 py-1">
+                        <div className="h-2 bg-white/5 rounded-full overflow-hidden">
+                          <div className="h-full bg-emerald-500/40 rounded-full animate-pulse" style={{ width: '100%' }} />
+                        </div>
+                        <p className="text-[10px] text-white/30 text-center">Aplicando recorrência nos meses...</p>
+                      </div>
+                    )}
+
                     <div className="flex gap-3 pt-2">
                       <button
                         onClick={() => setRecurrenceModal(null)}
-                        className="flex-1 py-3 rounded-xl border border-white/10 text-white/50 text-sm font-bold hover:bg-white/5 transition-all"
+                        disabled={recLoading}
+                        className="flex-1 py-3 rounded-xl border border-white/10 text-white/50 text-sm font-bold hover:bg-white/5 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
                       >
                         Cancelar
                       </button>
                       <button
                         onClick={saveRecurrenceConfig}
-                        className="flex-1 py-3 rounded-xl bg-gradient-to-r from-emerald-500 to-emerald-600 text-white text-sm font-bold hover:from-emerald-400 hover:to-emerald-500 transition-all flex items-center justify-center gap-2"
+                        disabled={recLoading}
+                        className="flex-1 py-3 rounded-xl bg-gradient-to-r from-emerald-500 to-emerald-600 text-white text-sm font-bold hover:from-emerald-400 hover:to-emerald-500 transition-all disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                       >
-                        <Repeat className="w-4 h-4" />
-                        Salvar
+                        {recLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Repeat className="w-4 h-4" />}
+                        {recLoading ? 'Salvando...' : 'Salvar'}
                       </button>
                     </div>
                   </div>
