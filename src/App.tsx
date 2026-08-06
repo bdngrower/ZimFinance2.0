@@ -1526,16 +1526,6 @@ export default function App() {
             Configurações
           </button>
 
-          <button
-            onClick={() => {
-              triggerInstallPWA();
-              setSidebarOpen(false);
-            }}
-            className="w-full flex items-center px-4 py-3 rounded-2xl font-bold text-emerald-400 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/20 transition-all mt-4 cursor-pointer"
-          >
-            <Download className="w-5 h-5 mr-3 shrink-0" />
-            Instalar App
-          </button>
         </nav>
 
         <div className="p-4 border-t border-white/5">
@@ -1638,14 +1628,6 @@ export default function App() {
             </div>
 
 
-            <button
-              onClick={triggerInstallPWA}
-              className="hidden sm:flex items-center gap-1.5 bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-400 border border-emerald-500/30 px-3 py-1.5 rounded-xl text-xs font-bold transition-all shadow-sm shadow-emerald-500/10 cursor-pointer"
-              title="Instalar ZimFinance como App no dispositivo"
-            >
-              <Smartphone className="w-4 h-4" />
-              Instalar App
-            </button>
 
             <div className="relative">
               <button
@@ -2375,106 +2357,139 @@ export default function App() {
           </div>
         )}
 
-        {activeView === 'settings' && userProfile?.role === 'admin' && (
+        {activeView === 'settings' && (
           <div className="flex-1 overflow-y-auto p-3 lg:p-6 pb-20 lg:pb-6 relative z-10 custom-scrollbar">
             <div className="max-w-2xl mx-auto space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+              
+              {/* PWA App Installation Section */}
               <div className="flex items-center gap-3 mb-2">
-                <div className="p-2.5 bg-violet-500/10 border border-violet-500/20 rounded-xl">
-                  <Shield className="w-5 h-5 text-violet-400" />
+                <div className="p-2.5 bg-emerald-500/10 border border-emerald-500/20 rounded-xl">
+                  <Smartphone className="w-5 h-5 text-emerald-400" />
                 </div>
                 <div>
-                  <h2 className="font-extrabold text-lg">Painel Administrativo</h2>
-                  <p className="text-white/40 text-xs">Gerencie usuários do ZimFinance</p>
+                  <h2 className="font-extrabold text-lg">Aplicativo ZimFinance</h2>
+                  <p className="text-white/40 text-xs">Instale o app diretamente no seu dispositivo</p>
                 </div>
               </div>
 
-              <div className="bg-white/3 border border-white/8 rounded-2xl overflow-hidden">
-                <div className="flex items-center gap-2 px-5 py-4 border-b border-white/5">
-                  <UserPlus className="w-4 h-4 text-emerald-400" />
-                  <span className="font-bold text-sm">Criar Novo Usuário</span>
+              <div className="bg-white/3 border border-white/8 rounded-2xl p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div>
+                  <h3 className="font-bold text-sm text-white">Instalar App no Dispositivo</h3>
+                  <p className="text-xs text-white/40 mt-1 max-w-md">
+                    Instale o ZimFinance como PWA para acessar rapidamente pela tela inicial com desempenho otimizado.
+                  </p>
                 </div>
-
-                <div className="p-5 space-y-4">
-                  {adminMsg && (
-                    <div className={`p-3 rounded-xl text-sm font-medium border ${adminMsg.type === 'success' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-rose-500/10 text-rose-400 border-rose-500/20'}`}>
-                      {adminMsg.text}
-                    </div>
-                  )}
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-[10px] font-bold text-white/40 uppercase tracking-widest mb-1.5">Nome</label>
-                      <input
-                        type="text"
-                        value={newUserName}
-                        onChange={e => setNewUserName(e.target.value)}
-                        placeholder="Nome do usuário"
-                        className="w-full bg-black/20 border border-white/10 focus:border-emerald-500 p-2.5 rounded-xl text-sm text-white outline-none transition-all"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-[10px] font-bold text-white/40 uppercase tracking-widest mb-1.5">E-mail *</label>
-                      <input
-                        type="email"
-                        value={newUserEmail}
-                        onChange={e => setNewUserEmail(e.target.value)}
-                        placeholder="email@exemplo.com"
-                        className="w-full bg-black/20 border border-white/10 focus:border-emerald-500 p-2.5 rounded-xl text-sm text-white outline-none transition-all"
-                      />
-                    </div>
-                    <div className="sm:col-span-2">
-                      <label className="block text-[10px] font-bold text-white/40 uppercase tracking-widest mb-1.5">Senha *</label>
-                      <input
-                        type="password"
-                        value={newUserPassword}
-                        onChange={e => setNewUserPassword(e.target.value)}
-                        placeholder="Mínimo 6 caracteres"
-                        className="w-full bg-black/20 border border-white/10 focus:border-emerald-500 p-2.5 rounded-xl text-sm text-white outline-none transition-all"
-                      />
-                    </div>
-                  </div>
-
-                  <button
-                    onClick={createAdminUser}
-                    disabled={adminLoading}
-                    className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-emerald-500 to-emerald-600 text-white font-bold py-3 rounded-xl hover:from-emerald-400 hover:to-emerald-500 transition-all disabled:opacity-50"
-                  >
-                    {adminLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <UserPlus className="w-4 h-4" />}
-                    Criar Usuário
-                  </button>
-                </div>
+                <button
+                  onClick={triggerInstallPWA}
+                  className="flex items-center justify-center gap-2 bg-emerald-500 hover:bg-emerald-400 text-white font-bold px-4 py-2.5 rounded-xl text-xs transition-all shadow-lg shadow-emerald-500/20 cursor-pointer shrink-0"
+                >
+                  <Download className="w-4 h-4" />
+                  <span>Instalar App</span>
+                </button>
               </div>
 
-              <div className="bg-white/3 border border-white/8 rounded-2xl overflow-hidden">
-                <div className="flex items-center gap-2 px-5 py-4 border-b border-white/5">
-                  <Users className="w-4 h-4 text-indigo-400" />
-                  <span className="font-bold text-sm">Usuários Cadastrados</span>
-                  <span className="ml-auto text-xs text-white/30 font-mono">{adminUsers.length}</span>
-                </div>
-
-                {adminLoading && adminUsers.length === 0 ? (
-                  <div className="p-8 flex justify-center">
-                    <Loader2 className="w-6 h-6 animate-spin text-emerald-500" />
+              {/* Painel Administrativo (apenas para Admin) */}
+              {userProfile?.role === 'admin' && (
+                <div className="space-y-6 pt-4 border-t border-white/5">
+                  <div className="flex items-center gap-3 mb-2">
+                    <div className="p-2.5 bg-violet-500/10 border border-violet-500/20 rounded-xl">
+                      <Shield className="w-5 h-5 text-violet-400" />
+                    </div>
+                    <div>
+                      <h2 className="font-extrabold text-lg">Painel Administrativo</h2>
+                      <p className="text-white/40 text-xs">Gerencie usuários do ZimFinance</p>
+                    </div>
                   </div>
-                ) : (
-                  <div className="divide-y divide-white/5">
-                    {adminUsers.map(u => (
-                      <div key={u.id} className="flex items-center px-5 py-3.5 gap-3">
-                        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-emerald-500/30 to-indigo-500/30 border border-white/10 flex items-center justify-center text-xs font-bold text-white/70 flex-shrink-0">
-                          {(u.display_name || u.email).charAt(0).toUpperCase()}
+
+                  <div className="bg-white/3 border border-white/8 rounded-2xl overflow-hidden">
+                    <div className="flex items-center gap-2 px-5 py-4 border-b border-white/5">
+                      <UserPlus className="w-4 h-4 text-emerald-400" />
+                      <span className="font-bold text-sm">Criar Novo Usuário</span>
+                    </div>
+
+                    <div className="p-5 space-y-4">
+                      {adminMsg && (
+                        <div className={`p-3 rounded-xl text-sm font-medium border ${adminMsg.type === 'success' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-rose-500/10 text-rose-400 border-rose-500/20'}`}>
+                          {adminMsg.text}
                         </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-bold text-white truncate">{u.display_name || u.email.split('@')[0]}</p>
-                          <p className="text-xs text-white/40 truncate">{u.email}</p>
+                      )}
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-[10px] font-bold text-white/40 uppercase tracking-widest mb-1.5">Nome</label>
+                          <input
+                            type="text"
+                            value={newUserName}
+                            onChange={e => setNewUserName(e.target.value)}
+                            placeholder="Nome do usuário"
+                            className="w-full bg-black/20 border border-white/10 focus:border-emerald-500 p-2.5 rounded-xl text-sm text-white outline-none transition-all"
+                          />
                         </div>
-                        <span className={`text-[10px] font-bold px-2 py-1 rounded-lg ${u.role === 'admin' ? 'bg-violet-500/20 text-violet-400 border border-violet-500/20' : 'bg-white/5 text-white/40 border border-white/10'}`}>
-                          {u.role === 'admin' ? 'Admin' : 'User'}
-                        </span>
+                        <div>
+                          <label className="block text-[10px] font-bold text-white/40 uppercase tracking-widest mb-1.5">E-mail *</label>
+                          <input
+                            type="email"
+                            value={newUserEmail}
+                            onChange={e => setNewUserEmail(e.target.value)}
+                            placeholder="email@exemplo.com"
+                            className="w-full bg-black/20 border border-white/10 focus:border-emerald-500 p-2.5 rounded-xl text-sm text-white outline-none transition-all"
+                          />
+                        </div>
+                        <div className="sm:col-span-2">
+                          <label className="block text-[10px] font-bold text-white/40 uppercase tracking-widest mb-1.5">Senha *</label>
+                          <input
+                            type="password"
+                            value={newUserPassword}
+                            onChange={e => setNewUserPassword(e.target.value)}
+                            placeholder="Mínimo 6 caracteres"
+                            className="w-full bg-black/20 border border-white/10 focus:border-emerald-500 p-2.5 rounded-xl text-sm text-white outline-none transition-all"
+                          />
+                        </div>
                       </div>
-                    ))}
+
+                      <button
+                        onClick={createAdminUser}
+                        disabled={adminLoading}
+                        className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-emerald-500 to-emerald-600 text-white font-bold py-3 rounded-xl hover:from-emerald-400 hover:to-emerald-500 transition-all disabled:opacity-50"
+                      >
+                        {adminLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <UserPlus className="w-4 h-4" />}
+                        Criar Usuário
+                      </button>
+                    </div>
                   </div>
-                )}
-              </div>
+
+                  <div className="bg-white/3 border border-white/8 rounded-2xl overflow-hidden">
+                    <div className="flex items-center gap-2 px-5 py-4 border-b border-white/5">
+                      <Users className="w-4 h-4 text-indigo-400" />
+                      <span className="font-bold text-sm">Usuários Cadastrados</span>
+                      <span className="ml-auto text-xs text-white/30 font-mono">{adminUsers.length}</span>
+                    </div>
+
+                    {adminLoading && adminUsers.length === 0 ? (
+                      <div className="p-8 flex justify-center">
+                        <Loader2 className="w-6 h-6 animate-spin text-emerald-500" />
+                      </div>
+                    ) : (
+                      <div className="divide-y divide-white/5">
+                        {adminUsers.map(u => (
+                          <div key={u.id} className="flex items-center px-5 py-3.5 gap-3">
+                            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-emerald-500/30 to-indigo-500/30 border border-white/10 flex items-center justify-center text-xs font-bold text-white/70 flex-shrink-0">
+                              {(u.display_name || u.email).charAt(0).toUpperCase()}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-bold text-white truncate">{u.display_name || u.email.split('@')[0]}</p>
+                              <p className="text-xs text-white/40 truncate">{u.email}</p>
+                            </div>
+                            <span className={`text-[10px] font-bold px-2 py-1 rounded-lg ${u.role === 'admin' ? 'bg-violet-500/20 text-violet-400 border border-violet-500/20' : 'bg-white/5 text-white/40 border border-white/10'}`}>
+                              {u.role === 'admin' ? 'Admin' : 'User'}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         )}
