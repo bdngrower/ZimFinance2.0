@@ -3,6 +3,7 @@ export type ExpenseRecord = {
   name: string;
   pagamento: number;
   vale: number;
+  is_paid?: boolean;
 };
 
 export type IncomeRecord = {

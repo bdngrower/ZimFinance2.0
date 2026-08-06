@@ -93,6 +93,7 @@ type ItemRecord = {
   is_recurring?: boolean;
   recurring_group_id?: string;
   linked_share_id?: string;
+  is_paid?: boolean;
 };
 
 type CardExpense = {
@@ -102,6 +103,7 @@ type CardExpense = {
   value: number;
   is_recurring?: boolean;
   recurring_group_id?: string;
+  is_paid?: boolean;
 };
 
 type UserProfile = {
@@ -805,6 +807,27 @@ export default function App() {
       
       fetchYearData();
     }
+  };
+
+  const toggleItemPaid = async (item: ItemRecord) => {
+    const newStatus = !item.is_paid;
+    setItems(prev => prev.map(i => (i.id === item.id ? { ...i, is_paid: newStatus } : i)));
+    await supabase
+      .from('items')
+      .update({ is_paid: newStatus })
+      .eq('id', item.id);
+  };
+
+  const toggleCardExpensePaid = async (cardId: string, exp: CardExpense) => {
+    const newStatus = !exp.is_paid;
+    setCardExpenses(prev => ({
+      ...prev,
+      [cardId]: (prev[cardId] || []).map(e => (e.id === exp.id ? { ...e, is_paid: newStatus } : e)),
+    }));
+    await supabase
+      .from('card_expenses')
+      .update({ is_paid: newStatus })
+      .eq('id', exp.id);
   };
 
   const addItem = async (type: string) => {
@@ -1741,13 +1764,28 @@ export default function App() {
                                   </div>
                                 ))}
 
-                                <div className="flex items-center gap-2 px-3 py-2">
+                                <div className="flex items-center gap-1.5 px-3 py-2">
+                                  <button
+                                    onClick={() => toggleItemPaid(item)}
+                                    className={`px-1.5 py-0.5 rounded text-[10px] font-bold border transition-all shrink-0 flex items-center gap-0.5 cursor-pointer ${
+                                      item.is_paid
+                                        ? 'bg-emerald-500 text-white border-emerald-400 shadow-sm shadow-emerald-500/30'
+                                        : 'bg-white/5 text-white/40 border-white/10 hover:text-emerald-400 hover:border-emerald-500/30'
+                                    }`}
+                                    title={item.is_paid ? 'Pago' : 'Marcar como pago'}
+                                  >
+                                    {item.is_paid && <Check className="w-2.5 h-2.5 stroke-[3]" />}
+                                    PG
+                                  </button>
+
                                   <input
                                     type="text"
                                     value={item.name}
                                     onChange={(e) => updateItemLocal(item.id, 'name', e.target.value)}
                                     readOnly={!isEdit}
-                                    className="flex-1 bg-transparent text-xs font-medium text-white/80 outline-none min-w-0"
+                                    className={`flex-1 bg-transparent text-xs font-medium outline-none min-w-0 transition-colors ${
+                                      item.is_paid ? 'text-emerald-400 font-semibold line-through decoration-emerald-500/50' : 'text-white/80'
+                                    }`}
                                     placeholder="Descrição"
                                   />
                                   <span className="text-white/30 text-[10px]">R$</span>
@@ -1756,11 +1794,13 @@ export default function App() {
                                     value={item.pagamento || ''}
                                     onChange={(e) => updateItemLocal(item.id, 'pagamento', e.target.value)}
                                     readOnly={!isEdit}
-                                    className="w-16 bg-transparent text-xs font-mono text-emerald-400 text-right outline-none"
+                                    className={`w-16 bg-transparent text-xs font-mono text-right outline-none ${
+                                      item.is_paid ? 'text-emerald-400 font-bold' : 'text-emerald-400'
+                                    }`}
                                     placeholder="0"
                                   />
 
-                                  <div className="flex gap-1 items-center bg-black/40 px-1.5 py-0.5 rounded-lg border border-white/5 shadow-xl shrink-0 opacity-0 group-hover:opacity-100 transition-all">
+                                  <div className="flex gap-1 items-center bg-black/40 px-1.5 py-0.5 rounded-lg border border-white/5 shadow-xl shrink-0 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-all">
                                     <button onClick={() => toggleRecurring(item)} className={`p-1 rounded transition-all ${item.is_recurring ? 'text-emerald-400 bg-emerald-500/10' : 'text-white/20 hover:text-white'}`} title="Recorrente">
                                       <Repeat className="w-3 h-3" />
                                     </button>
@@ -1826,13 +1866,28 @@ export default function App() {
                                   </div>
                                 ))}
 
-                                <div className="flex items-center gap-2 px-3 py-2">
+                                <div className="flex items-center gap-1.5 px-3 py-2">
+                                  <button
+                                    onClick={() => toggleItemPaid(item)}
+                                    className={`px-1.5 py-0.5 rounded text-[10px] font-bold border transition-all shrink-0 flex items-center gap-0.5 cursor-pointer ${
+                                      item.is_paid
+                                        ? 'bg-emerald-500 text-white border-emerald-400 shadow-sm shadow-emerald-500/30'
+                                        : 'bg-white/5 text-white/40 border-white/10 hover:text-emerald-400 hover:border-emerald-500/30'
+                                    }`}
+                                    title={item.is_paid ? 'Pago' : 'Marcar como pago'}
+                                  >
+                                    {item.is_paid && <Check className="w-2.5 h-2.5 stroke-[3]" />}
+                                    PG
+                                  </button>
+
                                   <input
                                     type="text"
                                     value={item.name}
                                     onChange={(e) => updateItemLocal(item.id, 'name', e.target.value)}
                                     readOnly={!isEdit}
-                                    className="flex-1 bg-transparent text-xs font-medium text-white/80 outline-none min-w-0"
+                                    className={`flex-1 bg-transparent text-xs font-medium outline-none min-w-0 transition-colors ${
+                                      item.is_paid ? 'text-emerald-400 font-semibold line-through decoration-emerald-500/50' : 'text-white/80'
+                                    }`}
                                     placeholder="Descrição"
                                   />
                                   <span className="text-white/30 text-[10px]">R$</span>
@@ -1841,11 +1896,13 @@ export default function App() {
                                     value={item.vale || ''}
                                     onChange={(e) => updateItemLocal(item.id, 'vale', e.target.value)}
                                     readOnly={!isEdit}
-                                    className="w-16 bg-transparent text-xs font-mono text-indigo-400 text-right outline-none"
+                                    className={`w-16 bg-transparent text-xs font-mono text-right outline-none ${
+                                      item.is_paid ? 'text-emerald-400 font-bold' : 'text-indigo-400'
+                                    }`}
                                     placeholder="0"
                                   />
 
-                                  <div className="flex gap-1 items-center bg-black/40 px-1.5 py-0.5 rounded-lg border border-white/5 shadow-xl shrink-0 opacity-0 group-hover:opacity-100 transition-all">
+                                  <div className="flex gap-1 items-center bg-black/40 px-1.5 py-0.5 rounded-lg border border-white/5 shadow-xl shrink-0 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-all">
                                     <button onClick={() => toggleRecurring(item)} className={`p-1 rounded transition-all ${item.is_recurring ? 'text-indigo-400 bg-indigo-500/10' : 'text-white/20 hover:text-white'}`} title="Recorrente">
                                       <Repeat className="w-3 h-3" />
                                     </button>
@@ -1925,9 +1982,22 @@ export default function App() {
                                     </div>
                                   ))}
 
-                                  <div className="flex items-center gap-2 px-3 py-2.5 transition-all">
+                                  <div className="flex items-center gap-1.5 px-3 py-2.5 transition-all">
                                     <button onClick={() => toggleExpandCard(item.id)} className={`p-0.5 rounded transition-all shrink-0 ${isExpanded ? 'text-white/60' : 'text-white/20 hover:text-white/60'}`}>
                                       <ChevronRight className={`w-3 h-3 transition-transform duration-200 ${isExpanded ? 'rotate-90' : ''}`} />
+                                    </button>
+
+                                    <button
+                                      onClick={() => toggleItemPaid(item)}
+                                      className={`px-1.5 py-0.5 rounded text-[10px] font-bold border transition-all shrink-0 flex items-center gap-0.5 cursor-pointer ${
+                                        item.is_paid
+                                          ? 'bg-emerald-500 text-white border-emerald-400 shadow-sm shadow-emerald-500/30'
+                                          : 'bg-white/5 text-white/40 border-white/10 hover:text-emerald-400 hover:border-emerald-500/30'
+                                      }`}
+                                      title={item.is_paid ? 'Pago' : 'Marcar como pago'}
+                                    >
+                                      {item.is_paid && <Check className="w-2.5 h-2.5 stroke-[3]" />}
+                                      PG
                                     </button>
 
                                     <input
@@ -1935,7 +2005,9 @@ export default function App() {
                                       value={item.name}
                                       onChange={(e) => updateItemLocal(item.id, 'name', e.target.value)}
                                       readOnly={!isEdit}
-                                      className="flex-1 bg-transparent text-xs font-medium text-white/80 outline-none min-w-0"
+                                      className={`flex-1 bg-transparent text-xs font-medium outline-none min-w-0 transition-colors ${
+                                        item.is_paid ? 'text-emerald-400 font-semibold line-through decoration-emerald-500/50' : 'text-white/80'
+                                      }`}
                                       placeholder="Nome do cartão"
                                     />
 
@@ -1952,7 +2024,7 @@ export default function App() {
                                     <span className="text-white/30 text-[10px]">R$</span>
 
                                     {hasExpenses ? (
-                                      <span className={`w-20 text-xs font-mono font-bold text-right ${isPagamento ? 'text-emerald-400' : 'text-indigo-400'}`}>
+                                      <span className={`w-20 text-xs font-mono font-bold text-right ${item.is_paid ? 'text-emerald-400' : isPagamento ? 'text-emerald-400' : 'text-indigo-400'}`}>
                                         {formatCurrency(displayTotal).replace('R$\u00a0', '')}
                                       </span>
                                     ) : (
@@ -1961,11 +2033,11 @@ export default function App() {
                                         value={(item[amountField as keyof ItemRecord] as number) || ''}
                                         onChange={(e) => updateItemLocal(item.id, amountField, e.target.value)}
                                         readOnly={!isEdit}
-                                        className={`w-16 bg-transparent text-xs font-mono text-right outline-none ${isPagamento ? 'text-emerald-400' : 'text-indigo-400'}`}
+                                        className={`w-16 bg-transparent text-xs font-mono text-right outline-none ${item.is_paid ? 'text-emerald-400 font-bold' : isPagamento ? 'text-emerald-400' : 'text-indigo-400'}`}
                                       />
                                     )}
 
-                                    <div className="flex gap-0.5 shrink-0 opacity-0 group-hover:opacity-100 transition-all">
+                                    <div className="flex gap-0.5 shrink-0 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-all">
                                       <button onClick={() => toggleRecurring(item)} className={`p-1 rounded ${item.is_recurring ? 'text-emerald-400 bg-emerald-500/10' : 'text-white/20'}`} title="Recorrente">
                                         <Repeat className="w-3 h-3" />
                                       </button>
@@ -1997,13 +2069,28 @@ export default function App() {
                                         const isExpEdit = editingCardExpenses[exp.id];
 
                                         return (
-                                          <div key={exp.id} className="flex items-center gap-2 pl-8 pr-3 py-2 group">
+                                          <div key={exp.id} className="flex items-center gap-1.5 pl-6 pr-3 py-2 group">
+                                            <button
+                                              onClick={() => toggleCardExpensePaid(item.id, exp)}
+                                              className={`px-1 py-0.5 rounded text-[9px] font-bold border transition-all shrink-0 flex items-center gap-0.5 cursor-pointer ${
+                                                exp.is_paid
+                                                  ? 'bg-emerald-500 text-white border-emerald-400 shadow-sm shadow-emerald-500/30'
+                                                  : 'bg-white/5 text-white/30 border-white/10 hover:text-emerald-400 hover:border-emerald-500/30'
+                                              }`}
+                                              title={exp.is_paid ? 'Pago' : 'Marcar como pago'}
+                                            >
+                                              {exp.is_paid && <Check className="w-2 h-2 stroke-[3]" />}
+                                              PG
+                                            </button>
+
                                             <input
                                               type="text"
                                               value={exp.name}
                                               onChange={(e) => updateCardExpenseLocal(item.id, exp.id, 'name', e.target.value)}
                                               readOnly={!isExpEdit}
-                                              className="flex-1 bg-transparent text-[11px] text-white/70 outline-none"
+                                              className={`flex-1 bg-transparent text-[11px] outline-none transition-colors ${
+                                                exp.is_paid ? 'text-emerald-400 font-semibold line-through decoration-emerald-500/50' : 'text-white/70'
+                                              }`}
                                               placeholder="Compra"
                                             />
                                             <span className="text-white/20 text-[10px]">R$</span>
@@ -2012,9 +2099,11 @@ export default function App() {
                                               value={exp.value || ''}
                                               onChange={(e) => updateCardExpenseLocal(item.id, exp.id, 'value', e.target.value)}
                                               readOnly={!isExpEdit}
-                                              className="w-16 bg-transparent text-[11px] font-mono text-right outline-none text-white/90"
+                                              className={`w-16 bg-transparent text-[11px] font-mono text-right outline-none ${
+                                                exp.is_paid ? 'text-emerald-400 font-bold' : 'text-white/90'
+                                              }`}
                                             />
-                                            <div className="flex gap-0.5 opacity-0 group-hover:opacity-100 transition-all">
+                                            <div className="flex gap-0.5 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-all">
                                               <button onClick={() => toggleRecurringCardExpense(item.id, exp)} className={`p-1 rounded ${exp.is_recurring ? 'text-emerald-400 bg-emerald-500/10' : 'text-white/20'}`} title="Recorrente">
                                                 <Repeat className="w-2.5 h-2.5" />
                                               </button>
