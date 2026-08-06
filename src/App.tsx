@@ -33,9 +33,6 @@ import {
   Landmark,
 } from 'lucide-react';
 import { supabase } from './lib/supabaseClient';
-import { openFinanceClient } from './lib/openFinanceClient';
-import { BankConnection, OpenFinanceTransaction } from './types';
-import { PluggyConnect } from 'react-pluggy-connect';
 import {
   BarChart,
   Bar,
@@ -206,13 +203,6 @@ export default function App() {
   const [isIOS, setIsIOS] = useState(false);
   const [showIOSModal, setShowIOSModal] = useState(false);
 
-  // Open Finance States
-  const [bankConnections, setBankConnections] = useState<BankConnection[]>([]);
-  const [ofTransactions, setOfTransactions] = useState<OpenFinanceTransaction[]>([]);
-  const [showOfModal, setShowOfModal] = useState(false);
-  const [ofLoading, setOfLoading] = useState(false);
-  const [selectedConnection, setSelectedConnection] = useState<BankConnection | null>(null);
-  const [pluggyToken, setPluggyToken] = useState<string | null>(null);
 
   const currentMonthId = `${currentYear}-${String(currentMonthIndex + 1).padStart(2, '0')}`;
 
@@ -265,7 +255,6 @@ export default function App() {
       fetchYearData();
       loadUserProfile();
       loadNotifications();
-      loadBankConnections();
 
       const interval = setInterval(loadNotifications, 30000);
       return () => clearInterval(interval);
@@ -282,88 +271,6 @@ export default function App() {
       .single();
 
     if (data) setUserProfile(data as UserProfile);
-  };
-
-  const loadBankConnections = async () => {
-    if (!session?.user?.id) return;
-    const cons = await openFinanceClient.getConnections(session.user.id);
-    setBankConnections(cons);
-  };
-
-  const handleConnectBank = async () => {
-    if (!session?.user?.id) return;
-    setOfLoading(true);
-    const token = await openFinanceClient.getConnectToken();
-    if (token) {
-      setPluggyToken(token);
-    } else {
-      alert("Erro ao obter token de conexão com o banco.");
-    }
-    setOfLoading(false);
-  };
-
-  const handlePluggySuccess = async (itemData: any) => {
-    if (!session?.user?.id) return;
-    // Salva a nova conexão
-    const conn = await openFinanceClient.saveConnection(
-      session.user.id,
-      itemData.item.connector.name,
-      itemData.item.id
-    );
-    if (conn) {
-      setBankConnections(prev => [...prev, conn]);
-    }
-    setPluggyToken(null);
-  };
-
-  const openBankTransactions = async (conn: BankConnection) => {
-    if (!session?.user?.id) return;
-    setSelectedConnection(conn);
-    setShowOfModal(true);
-    setOfLoading(true);
-    const txs = await openFinanceClient.fetchRecentTransactions(session.user.id, conn.id);
-    setOfTransactions(txs);
-    setOfLoading(false);
-  };
-
-  const importTransaction = async (tx: OpenFinanceTransaction) => {
-    if (!session?.user?.id || !selectedConnection) return;
-    setOfLoading(true);
-    
-    // Insere no ZimFinance dependendo do tipo
-    if (tx.type === 'expense') {
-      const { error } = await supabase.from('items').insert({
-        user_id: session.user.id,
-        month_id: currentMonthId,
-        name: tx.description,
-        pagamento: tx.amount,
-        vale: 0,
-        type: 'despesa',
-        is_paid: true
-      });
-      if (!error) {
-        await openFinanceClient.markAsImported(session.user.id, selectedConnection.id, tx);
-      }
-    } else {
-      // Income (entra no Pagamento)
-      const inc = income.pagamento + tx.amount;
-      const { error } = await supabase
-        .from('monthly_income')
-        .update({ pagamento: inc })
-        .eq('month_id', currentMonthId)
-        .eq('user_id', session.user.id);
-      
-      if (!error) {
-        await openFinanceClient.markAsImported(session.user.id, selectedConnection.id, tx);
-        setIncome({ ...income, pagamento: inc });
-      }
-    }
-    
-    // Atualiza a lista
-    const txs = await openFinanceClient.fetchRecentTransactions(session.user.id, selectedConnection.id);
-    setOfTransactions(txs);
-    fetchData(); // recarrega tela
-    setOfLoading(false);
   };
 
   const loadNotifications = async () => {
@@ -1730,15 +1637,6 @@ export default function App() {
               )}
             </div>
 
-            {bankConnections.length > 0 && (
-              <button
-                onClick={() => openBankTransactions(bankConnections[0])}
-                className="flex items-center gap-1.5 bg-indigo-500/15 hover:bg-indigo-500/25 text-indigo-400 border border-indigo-500/30 px-3 py-1.5 rounded-xl text-xs font-bold transition-all shadow-sm shadow-indigo-500/10 cursor-pointer"
-              >
-                {ofLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Landmark className="w-3.5 h-3.5" />}
-                <span className="hidden sm:inline">Extrato Bancário</span>
-              </button>
-            )}
 
             <button
               onClick={triggerInstallPWA}
@@ -2477,76 +2375,18 @@ export default function App() {
           </div>
         )}
 
-        {activeView === 'settings' && (
+        {activeView === 'settings' && userProfile?.role === 'admin' && (
           <div className="flex-1 overflow-y-auto p-3 lg:p-6 pb-20 lg:pb-6 relative z-10 custom-scrollbar">
             <div className="max-w-2xl mx-auto space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
-              
-              {/* Integrações / Open Finance Section */}
-              <div className="flex items-center gap-3 mb-2 mt-4">
-                <div className="p-2.5 bg-indigo-500/10 border border-indigo-500/20 rounded-xl">
-                  <Landmark className="w-5 h-5 text-indigo-400" />
+              <div className="flex items-center gap-3 mb-2">
+                <div className="p-2.5 bg-violet-500/10 border border-violet-500/20 rounded-xl">
+                  <Shield className="w-5 h-5 text-violet-400" />
                 </div>
                 <div>
-                  <h2 className="font-extrabold text-lg">Integrações Bancárias</h2>
-                  <p className="text-white/40 text-xs">Conecte sua conta via Open Finance</p>
+                  <h2 className="font-extrabold text-lg">Painel Administrativo</h2>
+                  <p className="text-white/40 text-xs">Gerencie usuários do ZimFinance</p>
                 </div>
               </div>
-
-              <div className="bg-white/3 border border-white/8 rounded-2xl overflow-hidden p-5 space-y-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h3 className="font-bold text-sm">Contas Conectadas</h3>
-                    <p className="text-xs text-white/40 mt-1">Gerencie suas conexões seguras da Pluggy</p>
-                  </div>
-                  <button
-                    onClick={() => handleConnectBank()}
-                    className="flex items-center gap-1.5 bg-indigo-500/15 hover:bg-indigo-500/25 text-indigo-400 border border-indigo-500/30 px-3 py-1.5 rounded-xl text-xs font-bold transition-all shadow-sm shadow-indigo-500/10 cursor-pointer"
-                  >
-                    {ofLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Landmark className="w-3.5 h-3.5" />}
-                    <span>Conectar Banco</span>
-                  </button>
-                </div>
-                
-                {bankConnections.length > 0 ? (
-                  <div className="space-y-2 mt-4">
-                    {bankConnections.map(conn => (
-                      <div key={conn.id} className="flex items-center justify-between bg-black/20 p-3 rounded-xl border border-white/5">
-                        <div className="flex items-center gap-3">
-                          <div className="p-2 bg-indigo-500/20 rounded-lg">
-                            <Landmark className="w-4 h-4 text-indigo-400" />
-                          </div>
-                          <div>
-                            <p className="font-bold text-sm">{conn.provider}</p>
-                            <p className="text-[10px] text-emerald-400">Conectado</p>
-                          </div>
-                        </div>
-                        <button
-                          onClick={() => openBankTransactions(conn)}
-                          className="px-3 py-1.5 bg-white/5 hover:bg-white/10 text-white text-xs font-bold rounded-lg transition-all"
-                        >
-                          Ver Extrato
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="text-center py-6 text-white/40 text-sm">
-                    Nenhuma conta conectada no momento.
-                  </div>
-                )}
-              </div>
-
-              {userProfile?.role === 'admin' && (
-                <>
-                  <div className="flex items-center gap-3 mb-2 mt-8">
-                    <div className="p-2.5 bg-violet-500/10 border border-violet-500/20 rounded-xl">
-                      <Shield className="w-5 h-5 text-violet-400" />
-                    </div>
-                    <div>
-                      <h2 className="font-extrabold text-lg">Painel Administrativo</h2>
-                      <p className="text-white/40 text-xs">Gerencie usuários do ZimFinance</p>
-                    </div>
-                  </div>
 
               <div className="bg-white/3 border border-white/8 rounded-2xl overflow-hidden">
                 <div className="flex items-center gap-2 px-5 py-4 border-b border-white/5">
@@ -2635,8 +2475,6 @@ export default function App() {
                   </div>
                 )}
               </div>
-              </>
-              )}
             </div>
           </div>
         )}
@@ -2960,94 +2798,12 @@ export default function App() {
                 <span className="w-5 h-5 rounded-full bg-emerald-500/20 text-emerald-400 font-bold flex items-center justify-center text-[10px] shrink-0">3</span>
                 <span>Pronto! O ZimFinance funcionará como App nativo no seu iPhone.</span>
               </p>
-            </div>
               <button onClick={() => setShowIOSModal(false)} className="w-full bg-emerald-500 text-white font-bold py-2.5 rounded-xl hover:bg-emerald-400 transition-all cursor-pointer">
-              Entendi
-            </button>
-          </div>
-        </div>
-      )}
-
-      {showOfModal && selectedConnection && (
-        <div className="fixed inset-0 bg-black/70 backdrop-blur-md z-[100] flex items-center justify-center p-4">
-          <div className="bg-[#1a1d23] border border-white/10 rounded-3xl max-w-2xl w-full flex flex-col max-h-[85vh] shadow-2xl animate-in fade-in zoom-in-95 overflow-hidden">
-            <div className="p-4 sm:p-6 border-b border-white/10 flex items-center justify-between bg-white/5">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-indigo-500/20 text-indigo-400 flex items-center justify-center">
-                  <Landmark className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="font-bold text-white text-lg">Transações {selectedConnection.provider}</h3>
-                  <p className="text-xs text-white/50">Via Open Finance</p>
-                </div>
-              </div>
-              <button onClick={() => setShowOfModal(false)} className="p-2 text-white/40 hover:text-white hover:bg-white/10 rounded-xl transition-all">
-                <X className="w-5 h-5" />
+                Entendi
               </button>
             </div>
-
-            <div className="p-4 sm:p-6 overflow-y-auto flex-1 space-y-3">
-              {ofLoading && ofTransactions.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-12 text-white/50">
-                  <Loader2 className="w-8 h-8 animate-spin mb-4" />
-                  <p>Buscando transações do banco...</p>
-                </div>
-              ) : ofTransactions.length === 0 ? (
-                <div className="text-center py-12 text-white/50">Nenhuma transação recente encontrada.</div>
-              ) : (
-                ofTransactions.map(tx => (
-                  <div key={tx.external_transaction_id} className={`flex flex-col sm:flex-row sm:items-center justify-between p-4 rounded-2xl border ${tx.imported ? 'bg-white/5 border-white/5 opacity-60' : 'bg-[#22262d] border-white/10'} gap-3`}>
-                    <div className="flex flex-col">
-                      <span className="text-white font-bold">{tx.description}</span>
-                      <div className="flex items-center gap-2 mt-1">
-                        <span className="text-xs text-white/40">{tx.date.split('-').reverse().join('/')}</span>
-                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-white/10 text-white/60 uppercase">{tx.type}</span>
-                      </div>
-                    </div>
-                    <div className="flex items-center justify-between sm:justify-end gap-4">
-                      <span className={`font-bold ${tx.type === 'expense' ? 'text-rose-400' : 'text-emerald-400'}`}>
-                        {tx.type === 'expense' ? '-' : '+'} {formatCurrency(tx.amount)}
-                      </span>
-                      {tx.imported ? (
-                        <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-xs font-bold">
-                          <Check className="w-3.5 h-3.5" />
-                          Importado
-                        </div>
-                      ) : (
-                        <button
-                          onClick={() => importTransaction(tx)}
-                          disabled={ofLoading}
-                          className="flex items-center gap-1.5 bg-indigo-500 hover:bg-indigo-400 text-white px-3 py-1.5 rounded-xl text-xs font-bold transition-all disabled:opacity-50"
-                        >
-                          <Download className="w-3.5 h-3.5" />
-                          Importar
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-            <div className="p-4 sm:p-6 border-t border-white/10 bg-black/20 flex justify-end">
-               <button onClick={() => setShowOfModal(false)} className="px-5 py-2.5 rounded-xl font-bold bg-white/10 text-white hover:bg-white/20 transition-all">
-                 Fechar
-               </button>
-            </div>
           </div>
         </div>
-      )}
-
-      {pluggyToken && (
-        <PluggyConnect
-          connectToken={pluggyToken}
-          onSuccess={handlePluggySuccess}
-          onError={(error) => {
-            console.error('Pluggy error:', error);
-            setPluggyToken(null);
-            alert('Erro ao conectar com o banco. Tente novamente.');
-          }}
-          onClose={() => setPluggyToken(null)}
-        />
       )}
     </div>
   );
