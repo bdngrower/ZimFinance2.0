@@ -10,7 +10,7 @@ interface QuickEntryInputProps {
 interface Toast {
   id: number;
   message: string;
-  type: 'card' | 'pagamento' | 'vale';
+  type: 'card' | 'pagamento' | 'vale' | 'error';
 }
 
 export function QuickEntryInput({ onAddEntry, cards }: QuickEntryInputProps) {
@@ -35,7 +35,10 @@ export function QuickEntryInput({ onAddEntry, cards }: QuickEntryInputProps) {
   }, []);
 
   const doAdd = useCallback((parsed: ParsedExpense) => {
-    if (!parsed.amount || !parsed.description) return;
+    if (!parsed.amount) {
+      showToast('Não foi possível identificar o valor na frase.', 'error');
+      return;
+    }
     
     const cardName = parsed.targetCardId 
       ? cardsRef.current.find(c => c.id === parsed.targetCardId)?.name 
@@ -115,6 +118,8 @@ export function QuickEntryInput({ onAddEntry, cards }: QuickEntryInputProps) {
                 ? 'bg-indigo-500/20 border-indigo-500/30 text-indigo-300'
                 : toast.type === 'vale'
                 ? 'bg-amber-500/20 border-amber-500/30 text-amber-300'
+                : toast.type === 'error'
+                ? 'bg-rose-500/20 border-rose-500/30 text-rose-300'
                 : 'bg-emerald-500/20 border-emerald-500/30 text-emerald-300'
             }`}
           >

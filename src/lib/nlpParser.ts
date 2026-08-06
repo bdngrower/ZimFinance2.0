@@ -3,6 +3,8 @@
  * It tries to extract the value, description, period, and target card from a natural language string.
  */
 
+import { convertWordsToNumbers } from './numberWords';
+
 export interface ParsedExpense {
   amount: number | null;
   description: string;
@@ -10,10 +12,12 @@ export interface ParsedExpense {
   targetCardId?: string;
 }
 
-export function parseExpenseText(text: string, cards: any[] = []): ParsedExpense {
-  if (!text) {
+export function parseExpenseText(rawText: string, cards: any[] = []): ParsedExpense {
+  if (!rawText) {
     return { amount: null, description: '' };
   }
+
+  const text = convertWordsToNumbers(rawText);
 
   // Common patterns for values like: 15,50 / 15.50 / R$ 15,50 / R$15.50
   const valueRegex = /(?:r\$\s*)?(\d{1,3}(?:\.\d{3})*(?:,\d{2})?|\d+(?:[.,]\d+)?)/i;
