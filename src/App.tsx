@@ -34,6 +34,7 @@ import {
 } from 'lucide-react';
 import { supabase } from './lib/supabaseClient';
 import { QuickEntryInput } from './components/QuickEntryInput';
+import { CardManagementModal } from './components/CardManagementModal';
 import {
   BarChart,
   Bar,
@@ -182,6 +183,7 @@ export default function App() {
 
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [activeView, setActiveView] = useState<'dashboard' | 'lancamentos' | 'settings'>('dashboard');
+  const [isCardModalOpen, setCardModalOpen] = useState(false);
   const [notifications, setNotifications] = useState<ExpenseShare[]>([]);
   const [showNotifications, setShowNotifications] = useState(false);
   const [sentShares, setSentShares] = useState<ExpenseShare[]>([]);
@@ -918,14 +920,31 @@ export default function App() {
 
   const handleQuickEntry = async (expense: any) => {
     if (!expense.amount || !expense.description) return;
-    const type = 'expense_pagamento'; // default type
+
+    if (expense.targetCardId) {
+      const newExp = {
+        id: Math.random().toString(36).substr(2, 9),
+        card_item_id: expense.targetCardId,
+        name: expense.description,
+        value: expense.amount,
+      };
+      setCardExpenses(prev => ({
+        ...prev,
+        [expense.targetCardId]: [...(prev[expense.targetCardId] || []), newExp as any],
+      }));
+      await supabase.from('card_expenses').insert(newExp);
+      setEditingCardExpenses(prev => ({ ...prev, [newExp.id]: true }));
+      return;
+    }
+
+    const type = expense.period === 'vale' ? 'expense_vale' : 'expense_pagamento'; // default to pagamento
     const newItem = {
       id: Math.random().toString(36).substr(2, 9),
       month_id: currentMonthId,
       type,
       name: expense.description,
-      pagamento: expense.amount,
-      vale: 0,
+      pagamento: expense.period === 'vale' ? 0 : expense.amount,
+      vale: expense.period === 'vale' ? expense.amount : 0,
     };
     setItems(prev => [...prev, newItem]);
     await supabase.from('items').insert(newItem);
@@ -989,6 +1008,35 @@ export default function App() {
 
     setEditingCardExpenses(prev => ({ ...prev, [newExp.id]: true }));
     await supabase.from('card_expenses').insert(newExp);
+  };
+
+  const handleModalAddCardExpense = (cardId: string) => {
+    const card = items.find(i => i.id === cardId);
+    if (card) {
+      addCardExpense(card);
+    }
+  };
+
+  const handleAddCard = async (name: string, closingDay: number, dueDay: number) => {
+    const type = dueDay <= 5 ? 'card_pagamento' : 'card_vale';
+    const newItem = {
+      id: Math.random().toString(36).substr(2, 9),
+      month_id: currentMonthId,
+      type,
+      name,
+      pagamento: 0,
+      vale: 0,
+      closing_day: closingDay,
+      due_day: dueDay
+    };
+    setItems(prev => [...prev, newItem]);
+    await supabase.from('items').insert(newItem);
+  };
+
+  const handleUpdateCard = async (id: string, name: string, closingDay: number, dueDay: number) => {
+    const type = dueDay <= 5 ? 'card_pagamento' : 'card_vale';
+    setItems(prev => prev.map(item => item.id === id ? { ...item, name, closing_day: closingDay, due_day: dueDay, type } : item));
+    await supabase.from('items').update({ name, closing_day: closingDay, due_day: dueDay, type }).eq('id', id);
   };
 
   const updateCardExpenseLocal = (
@@ -1907,7 +1955,7 @@ export default function App() {
                   </div>
                 ) : (
                   <div className="space-y-4">
-                    <QuickEntryInput onAddEntry={handleQuickEntry} />
+                    <QuickEntryInput onAddEntry={handleQuickEntry} cards={items.filter(i => i.type.startsWith('card_'))} />
                     <div className="bg-white/5 backdrop-blur-xl rounded-2xl border border-white/10 overflow-hidden">
 
                       <div className="flex items-center justify-between px-4 py-2.5 border-b border-white/5">
@@ -2160,8 +2208,8 @@ export default function App() {
                           <span className="text-xs font-bold text-white/60 flex items-center gap-1.5">
                             <CreditCard className="w-3.5 h-3.5" /> Cartões
                           </span>
-                          <button onClick={() => addItem('card_pagamento')} className="p-1 text-white/40 hover:text-white hover:bg-white/10 rounded-lg transition-all">
-                            <Plus className="w-3.5 h-3.5" />
+                          <button onClick={() => setCardModalOpen(true)} className="px-3 py-1.5 text-[10px] font-bold text-white bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-400 rounded-lg transition-all flex items-center gap-1.5">
+                            Gerenciar Cartões
                           </button>
                         </div>
 
@@ -2847,6 +2895,16 @@ export default function App() {
           </div>
         </div>
       )}
+
+      <CardManagementModal
+        isOpen={isCardModalOpen}
+        onClose={() => setCardModalOpen(false)}
+        cards={items.filter(i => i.type.startsWith('card_'))}
+        onAddCard={handleAddCard}
+        onUpdateCard={handleUpdateCard}
+        onDeleteCard={removeItem}
+        onAddCardExpense={handleModalAddCardExpense}
+      />
     </div>
   );
 }
