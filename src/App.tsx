@@ -919,13 +919,14 @@ export default function App() {
   };
 
   const handleQuickEntry = async (expense: any) => {
-    if (!expense.amount || !expense.description) return;
+    if (!expense.amount) return;
+    const desc = expense.description || 'Despesa rápida';
 
     if (expense.targetCardId) {
       const newExp = {
         id: Math.random().toString(36).substr(2, 9),
         card_item_id: expense.targetCardId,
-        name: expense.description,
+        name: desc,
         value: expense.amount,
       };
       setCardExpenses(prev => ({
@@ -942,7 +943,7 @@ export default function App() {
       id: Math.random().toString(36).substr(2, 9),
       month_id: currentMonthId,
       type,
-      name: expense.description,
+      name: desc,
       pagamento: expense.period === 'vale' ? 0 : expense.amount,
       vale: expense.period === 'vale' ? expense.amount : 0,
     };
