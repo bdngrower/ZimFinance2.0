@@ -1,33 +1,54 @@
-# 🗺️ Roadmap - ZimFinance 2.0
+# 🗺️ Roadmap Atualizado - ZimFinance 2.0
 
-Este documento descreve as fases de desenvolvimento e as funcionalidades futuras planejadas para o ZimFinance.
-
-## ✅ Fase 1: Fundação e Core (Concluído)
-- [x] Configuração inicial React + Vite + Supabase.
-- [x] Sistema de Autenticação (Login/Logout).
-- [x] CRUD de Itens (Pagamento e Vale).
-- [x] Dashboard Financeiro Básico.
-- [x] Correção de Encoding (UTF-8).
-- [x] Logo oficial e Favicon.
-
-## 🚀 Fase 2: Gestão Avançada (Atual)
-- [x] **Sub-despesas de Cartão**: Adição de compras individuais que somam ao total do cartão.
-- [x] **Redesign Premium**: Cards compactos, tipografia refinada e layout profissional.
-- [x] **Seletor de Mês**: Grid de seleção rápida de meses.
-- [x] **Projeção Anual**: Cálculo de saldo acumulado anual no dashboard.
-- [x] **Compartilhamento Granular**: Dividir despesas e cartões com outros usuários com exclusão sincronizada.
-
-## 🏗️ Fase 3: Próximos Passos (Curto Prazo)
-- [ ] **Categorização de Gastos**: Adicionar ícones ou tags (Alimentação, Lazer, Saúde) para melhor detalhamento no gráfico de pizza.
-- [ ] **Exportação de Dados**: Gerar relatórios em PDF ou Excel dos meses fechados.
-- [ ] **Metas de Economia**: Definir objetivos financeiros mensais e acompanhar o progresso.
-- [ ] **Notificações**: Alertas visuais quando um cartão estiver próximo do limite ou o saldo estiver baixo.
-
-## 🔮 Fase 4: Inteligência e Expansão (Longo Prazo)
-- [ ] **Análise Preditiva**: IA para prever gastos futuros baseados no histórico.
-- [ ] **Modo Multi-Moeda**: Suporte para gastos em USD/EUR com conversão automática.
-- [ ] **Versão Mobile nativa**: Aplicativo dedicado para iOS e Android via React Native.
-- [ ] **Integração Bancária (Open Banking)**: Sincronização automática de extratos (via API).
+Este documento descreve o estado atual da plataforma, os marcos já alcançados e o plano estratégico de desenvolvimento do **ZimFinance**.
 
 ---
-*Última atualização: Maio de 2026.*
+
+## ✅ Fase 1: Fundação, Core e Autenticação (Concluído)
+- [x] Configuração da stack React + Vite + Supabase + TailwindCSS.
+- [x] Sistema de Autenticação com Supabase Auth (E-mail / Senha, sessões persistentes e rotas protegidas).
+- [x] Lançamento de despesas separadas por fonte de recebimento (Pagamento dia 05 e Adiantamento dia 20).
+- [x] Dashboard financeiro inicial com visão anual e mensal.
+- [x] Identidade visual premium em Dark Mode com Glassmorphism, accents Emerald/Indigo e tipografia moderna.
+
+---
+
+## ✅ Fase 2: Gestão Avançada de Cartões e Recorrência (Concluído)
+- [x] **Sub-compras de Cartão**: Possibilidade de declarar um cartão e incluir itens/compras individuais com soma automática ao valor total.
+- [x] **Despesas Recorrentes**: Modal de recorrência contínua ou com prazo limite em meses específicos.
+- [x] **Seletor Temporal em Grid**: Modal expansível para pular rapidamente para qualquer mês do ano vigentes.
+- [x] **Projeção Anual**: Cálculo em tempo real da Projeção de Saldo Acumulado Anual (Receita Anual - Gasto Anual).
+
+---
+
+## ✅ Fase 3: Recursos Colaborativos e UX Mobile (Concluído - Agosto 2026)
+- [x] **Compartilhamento Granular**: Dividir contas específicas e cartões com outros usuários com convites e notificações.
+- [x] **Sincronização de Exclusão RLS**: Exclusão vinculada por triggers no Supabase (`expense_shares`).
+- [x] **Otimização Touch / Mobile**: Ícones de ação (Editar, Recorrência, Compartilhar, Excluir) sempre visíveis em telas sensíveis ao toque sem depender de hover.
+- [x] **Confirmação de Pagamento (PG)**: Botão de alternância e indicador de pagamento ("PG") com destaque em verde e texto riscado/destacado.
+- [x] **Métricas de Maiores Gastos (Mensal, Acumulado e Anual)**: Gráfico de pizza e lista detalhada com alternadores (`Mês`, `Até Hoje`, `Anual`).
+
+---
+
+## 🚀 Fase 4: Categorização e Inteligência Financeira (Próximo Passo)
+- [ ] **Categorização por Tags/Ícones**: Atribuir categorias às contas (ex: Moradia, Alimentação, Lazer, Saúde, Transporte) para detalhar os gráficos.
+- [ ] **Limites e Metas de Orçamento**: Definir teto de gastos por categoria no mês e receber alertas visuais quando o limite for atingido.
+- [ ] **Filtros e Busca Avançada**: Campo de pesquisa rápida por nome de gasto ou valor nos lançamentos.
+
+---
+
+## 🏗️ Fase 5: Relatórios, Exportação e Integrações (Médio Prazo)
+- [ ] **Exportação de Dados**: Geração de relatórios executivos em PDF e planilha Excel dos fechamentos mensais e anuais.
+- [ ] **Comparativo Mês a Mês**: Gráfico de evolução de gastos por categoria comparando o mês atual com os meses anteriores.
+- [ ] **Análise Preditiva e Sugestões**: Estimativa de saldo futuro baseada na média histórica e recorrências ativas.
+
+---
+
+## 🔮 Fase 6: Expansão Mobile Nativa & Open Banking (Longo Prazo)
+- [ ] **PWA / App Nativo**: Transformação da aplicação em PWA instalável com suporte a notificações push nativas de vencimento.
+- [ ] **Multi-Moeda e Câmbio**: Suporte a conversão automática para transações internacionais (USD, EUR).
+- [ ] **Integração Open Finance**: Leitura automatizada de extratos bancários e faturas de cartão de crédito.
+
+---
+
+*Última atualização: Agosto de 2026.*

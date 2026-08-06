@@ -9,40 +9,35 @@ O ZimFinance 2.0 nasceu da necessidade de modernizar um controle financeiro que 
 
 ### 1. Fundação e Design System
 - **Tecnologia**: Vite + React + Tailwind.
-- **Estética**: Dark mode, Glassmorphism, Neon accents (Emerald/Indigo).
+- **Estética**: Dark mode, Glassmorphism, Neon accents (Emerald/Indigo/Amber).
 - **Estrutura**: Sidebar lateral fixa, Header com navegação temporal e Main content com scroll interno.
 
 ### 2. Base de Dados (Supabase)
 - **Tabelas**:
   - `months`: Armazena cabeçalhos mensais e rendimentos (Pagamento, Vale, Férias, 13º).
-  - `items`: Despesas e Cartões vinculados a um mês.
-  - `card_expenses`: Despesas individuais aninhadas a um item do tipo "cartão".
+  - `items`: Despesas e Cartões vinculados a um mês. Possui colunas `is_recurring`, `recurring_group_id` e `is_paid`.
+  - `card_expenses`: Despesas individuais aninhadas a um item do tipo "cartão". Possui colunas `is_recurring`, `recurring_group_id` e `is_paid`.
+  - `expense_shares`: Vínculos de compartilhamento granular entre usuários.
 - **Lógica**: Uso de `user_id` em todas as tabelas para multi-tenancy via RLS.
 
 ### 3. Funcionalidades de Destaque e Decisões Técnicas
 
-#### A. Gestão de Cartões (O "Pulo do Gato")
-- **Problema**: O usuário queria colocar um valor total no cartão, mas também listar compras individuais.
-- **Solução**: Implementamos uma estrutura onde o Cartão tem um valor **Base** (manual) e uma lista de **Sub-despesas**.
-- **Cálculo**: `Total Exibido = Valor Base + Soma das Sub-despesas`. Isso permite que o usuário mantenha o controle de gastos fixos do cartão e adicione as variáveis dinamicamente.
+#### A. Gestão de Cartões
+- **Estrutura**: O Cartão tem um valor **Base** (manual) e uma lista de **Sub-despesas**.
+- **Cálculo**: `Total Exibido = Valor Base + Soma das Sub-despesas`.
 
-#### B. Navegação Temporal
-- **Problema**: A mudança de mês por setas era lenta para longos períodos.
-- **Solução**: Criamos um seletor em Grid (popup) que permite pular para qualquer mês do ano com um clique.
+#### B. Confirmação de Pagamento ("PG")
+- **Implementação**: Coluna `is_paid` em `items` e `card_expenses`.
+- **UI**: Botão "PG" com alternância de estado e alteração da cor do texto (verde e riscado quando pago).
 
-#### C. Dashboard e Projeção
-- **Decisão**: O dashboard anual agora calcula a **Projeção de Saldo** (Receita Total Anual - Gasto Total Anual), dando uma visão clara de quanto sobrará ao final do ciclo.
+#### C. Otimização UX Mobile
+- **Implementação**: Ícones de ação (Recorrência, Compartilhar, Editar, Excluir) sempre visíveis em telas sensíveis ao toque (`opacity-100 sm:opacity-0 sm:group-hover:opacity-100`).
 
-#### E. Sistema de Compartilhamento (Maio 2026)
-- **Problema**: Necessidade de dividir gastos específicos de forma granular.
-- **Solução**: Implementamos compartilhamento de itens e despesas individuais de cartão.
-- **Sincronização**: Uso de `linked_share_id` e Database Triggers para sincronizar exclusões entre contas.
+#### D. Maiores Gastos (Mensal, Acumulado e Anual)
+- **Implementação**: Visualização tripla de gastos no Dashboard principal por alternadores (`Mês`, `Até Hoje`, `Anual`). Legendas e tooltip com métrica acumulada até o mês vigente e projeção de 12 meses.
 
-## 💡 Informações Importantes para Futuras Conversas
-
-- **Acentuação**: Sempre salvar arquivos em UTF-8.
-- **RLS**: Políticas de `DELETE` ativas na tabela `expense_shares` para gerenciar vínculos.
-- **Sincronização**: A exclusão sincronizada depende do Trigger `on_share_deleted` no Supabase.
+#### E. Sistema de Compartilhamento
+- **Implementação**: Compartilhamento granular de itens e despesas de cartão com outros usuários via e-mail e Supabase Database Triggers.
 
 ---
-*Documento atualizado pela Antigravity em 11 de Maio de 2026.*
+*Documento atualizado pela Antigravity em 06 de Agosto de 2026.*

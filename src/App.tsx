@@ -166,6 +166,9 @@ export default function App() {
   const [editingCardExpenses, setEditingCardExpenses] = useState<{ [expId: string]: boolean }>({});
 
   const [yearData, setYearData] = useState<any[]>([]);
+  const [yearItems, setYearItems] = useState<ItemRecord[]>([]);
+  const [yearCardExpenses, setYearCardExpenses] = useState<{ [cardId: string]: CardExpense[] }>({});
+  const [expensePieMode, setExpensePieMode] = useState<'month' | 'ytd' | 'year'>('month');
   const [annualTotals, setAnnualTotals] = useState<AnnualTotals>({ income: 0, expense: 0, balance: 0 });
   const [showMonthPicker, setShowMonthPicker] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -464,6 +467,28 @@ export default function App() {
       .from('items')
       .select('*')
       .in('month_id', monthIds);
+
+    if (allItems) {
+      setYearItems(allItems as ItemRecord[]);
+      const cardIds = allItems.filter(i => i.type.startsWith('card_')).map(i => i.id);
+      if (cardIds.length > 0) {
+        const { data: allCardExps } = await supabase
+          .from('card_expenses')
+          .select('*')
+          .in('card_item_id', cardIds);
+
+        if (allCardExps) {
+          const expMap: { [cardId: string]: CardExpense[] } = {};
+          allCardExps.forEach(e => {
+            if (!expMap[e.card_item_id]) expMap[e.card_item_id] = [];
+            expMap[e.card_item_id].push(e as CardExpense);
+          });
+          setYearCardExpenses(expMap);
+        }
+      } else {
+        setYearCardExpenses({});
+      }
+    }
 
     let totalInc = 0;
     let totalExp = 0;
@@ -1286,27 +1311,61 @@ export default function App() {
   }, [income, items, cardExpenses]);
 
   const pieChartData = useMemo(() => {
-    const expenses = items.filter(i => i.type.startsWith('expense_') || i.type.startsWith('card_'));
+    const sourceItems = yearItems.length > 0 ? yearItems : items;
+    const expenses = sourceItems.filter(
+      i => i.type.startsWith('expense_') || i.type.startsWith('card_'),
+    );
 
-    const grouped = expenses.reduce((acc, curr) => {
+    const grouped: Record<
+      string,
+      { name: string; monthVal: number; ytdVal: number; yearVal: number }
+    > = {};
+
+    expenses.forEach(curr => {
       const name = curr.name?.trim() || 'Sem nome';
       const base = (Number(curr.pagamento) || 0) + (Number(curr.vale) || 0);
-      const expsSum = curr.type.startsWith('card_')
-        ? (cardExpenses[curr.id] || []).reduce((s, e) => s + Number(e.value || 0), 0)
+      const cardExps = curr.type.startsWith('card_')
+        ? (yearCardExpenses[curr.id] || cardExpenses[curr.id] || []).reduce(
+            (s, e) => s + Number(e.value || 0),
+            0,
+          )
         : 0;
-      const totalVal = base + expsSum;
+      const itemTotal = base + cardExps;
 
-      if (totalVal > 0) {
-        acc[name] = (acc[name] || 0) + totalVal;
+      if (itemTotal > 0) {
+        if (!grouped[name]) {
+          grouped[name] = { name, monthVal: 0, ytdVal: 0, yearVal: 0 };
+        }
+
+        grouped[name].yearVal += itemTotal;
+
+        const itemMonthId = (curr as any).month_id || currentMonthId;
+        if (itemMonthId === currentMonthId) {
+          grouped[name].monthVal += itemTotal;
+        }
+
+        if (itemMonthId <= currentMonthId) {
+          grouped[name].ytdVal += itemTotal;
+        }
       }
+    });
 
-      return acc;
-    }, {} as Record<string, number>);
-
-    return Object.entries(grouped)
-      .map(([name, value]) => ({ name, value }))
+    return Object.values(grouped)
+      .map(g => ({
+        name: g.name,
+        value:
+          expensePieMode === 'month'
+            ? g.monthVal
+            : expensePieMode === 'ytd'
+            ? g.ytdVal
+            : g.yearVal,
+        monthValue: g.monthVal,
+        ytdValue: g.ytdVal,
+        yearValue: g.yearVal,
+      }))
+      .filter(g => g.value > 0)
       .sort((a, b) => b.value - a.value);
-  }, [items, cardExpenses]);
+  }, [items, cardExpenses, yearItems, yearCardExpenses, currentMonthId, expensePieMode]);
 
   if (authLoading) {
     return (
@@ -1667,26 +1726,117 @@ export default function App() {
                       </div>
 
                       <div className="xl:col-span-1 bg-white/5 backdrop-blur-xl p-5 rounded-2xl border border-white/10 flex flex-col shadow-xl">
-                        <h3 className="text-sm font-bold text-white/70 mb-4 flex items-center gap-2">
-                          <PieChartIcon className="w-4 h-4 text-emerald-400" />
-                          Maiores Gastos
-                        </h3>
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
+                          <h3 className="text-sm font-bold text-white/70 flex items-center gap-2">
+                            <PieChartIcon className="w-4 h-4 text-emerald-400" />
+                            Maiores Gastos
+                          </h3>
+                          <div className="flex items-center gap-1 bg-black/40 p-1 rounded-xl border border-white/10 text-[10px] font-bold self-start sm:self-auto">
+                            <button
+                              onClick={() => setExpensePieMode('month')}
+                              className={`px-2 py-1 rounded-lg transition-all cursor-pointer ${
+                                expensePieMode === 'month'
+                                  ? 'bg-emerald-500 text-white shadow-md shadow-emerald-500/20'
+                                  : 'text-white/40 hover:text-white'
+                              }`}
+                            >
+                              Mês
+                            </button>
+                            <button
+                              onClick={() => setExpensePieMode('ytd')}
+                              className={`px-2 py-1 rounded-lg transition-all cursor-pointer ${
+                                expensePieMode === 'ytd'
+                                  ? 'bg-emerald-500 text-white shadow-md shadow-emerald-500/20'
+                                  : 'text-white/40 hover:text-white'
+                              }`}
+                              title="Acumulado de Janeiro até o mês atual"
+                            >
+                              Até Hoje
+                            </button>
+                            <button
+                              onClick={() => setExpensePieMode('year')}
+                              className={`px-2 py-1 rounded-lg transition-all cursor-pointer ${
+                                expensePieMode === 'year'
+                                  ? 'bg-emerald-500 text-white shadow-md shadow-emerald-500/20'
+                                  : 'text-white/40 hover:text-white'
+                              }`}
+                              title="Projeção total de 12 meses"
+                            >
+                              Anual
+                            </button>
+                          </div>
+                        </div>
+
                         {pieChartData.length > 0 ? (
-                          <div className="flex-1 w-full min-h-[300px]">
-                            <ResponsiveContainer width="100%" height="100%">
-                              <PieChart>
-                                <Pie data={pieChartData} cx="50%" cy="50%" innerRadius={60} outerRadius={100} paddingAngle={5} dataKey="value" stroke="none">
-                                  {pieChartData.map((_entry, index) => (
-                                    <Cell key={`cell-${index}`} fill={PIE_COLORS[index % PIE_COLORS.length]} />
-                                  ))}
-                                </Pie>
-                                <Tooltip contentStyle={{ backgroundColor: '#0f1115', borderColor: 'rgba(255,255,255,0.1)', borderRadius: '16px', color: '#fff' }} formatter={(val: any) => formatCurrency(Number(val))} />
-                                <Legend layout="horizontal" verticalAlign="bottom" align="center" wrapperStyle={{ fontSize: '11px', color: 'white' }} />
-                              </PieChart>
-                            </ResponsiveContainer>
+                          <div className="flex-1 flex flex-col">
+                            <div className="w-full min-h-[200px] flex-1">
+                              <ResponsiveContainer width="100%" height="100%">
+                                <PieChart>
+                                  <Pie
+                                    data={pieChartData}
+                                    cx="50%"
+                                    cy="50%"
+                                    innerRadius={50}
+                                    outerRadius={85}
+                                    paddingAngle={4}
+                                    dataKey="value"
+                                    stroke="none"
+                                  >
+                                    {pieChartData.map((_entry, index) => (
+                                      <Cell key={`cell-${index}`} fill={PIE_COLORS[index % PIE_COLORS.length]} />
+                                    ))}
+                                  </Pie>
+                                  <Tooltip
+                                    content={({ active, payload }) => {
+                                      if (active && payload && payload.length) {
+                                        const data = payload[0].payload;
+                                        return (
+                                          <div className="bg-[#0f1115]/95 border border-white/10 p-3 rounded-xl shadow-2xl backdrop-blur-xl text-xs space-y-1.5 min-w-[190px]">
+                                            <p className="font-bold text-white border-b border-white/10 pb-1">{data.name}</p>
+                                            <div className="flex justify-between items-center text-emerald-400 font-mono">
+                                              <span className="text-white/50 text-[10px]">No Mês:</span>
+                                              <span className="font-bold">{formatCurrency(data.monthValue)}</span>
+                                            </div>
+                                            <div className="flex justify-between items-center text-indigo-400 font-mono">
+                                              <span className="text-white/50 text-[10px]">Acumulado (Até Hoje):</span>
+                                              <span className="font-bold">{formatCurrency(data.ytdValue)}</span>
+                                            </div>
+                                            <div className="flex justify-between items-center text-amber-400 font-mono">
+                                              <span className="text-white/50 text-[10px]">Total Anual:</span>
+                                              <span className="font-bold">{formatCurrency(data.yearValue)}</span>
+                                            </div>
+                                          </div>
+                                        );
+                                      }
+                                      return null;
+                                    }}
+                                  />
+                                </PieChart>
+                              </ResponsiveContainer>
+                            </div>
+
+                            <div className="mt-3 space-y-1.5 max-h-48 overflow-y-auto custom-scrollbar pr-1 divide-y divide-white/5">
+                              {pieChartData.map((item, idx) => (
+                                <div key={item.name} className="pt-1.5 first:pt-0 flex items-center justify-between text-xs">
+                                  <div className="flex items-center gap-2 overflow-hidden mr-2">
+                                    <span
+                                      className="w-2.5 h-2.5 rounded-full shrink-0"
+                                      style={{ backgroundColor: PIE_COLORS[idx % PIE_COLORS.length] }}
+                                    />
+                                    <span className="font-medium text-white/80 truncate">{item.name}</span>
+                                  </div>
+                                  <div className="text-right font-mono shrink-0">
+                                    <span className="text-white font-bold block">{formatCurrency(item.value)}</span>
+                                    <span className="text-[9px] text-white/40 block">
+                                      Mês: {formatCurrency(item.monthValue)} | Anual: {formatCurrency(item.yearValue)}
+                                    </span>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
                           </div>
                         ) : (
-                          <div className="flex-1 flex flex-col items-center justify-center text-white/40">
+                          <div className="flex-1 flex flex-col items-center justify-center text-white/40 min-h-[260px]">
                             <PieChartIcon className="w-12 h-12 mb-3 opacity-20" />
                             <p className="text-sm">Nenhum gasto registrado.</p>
                           </div>
