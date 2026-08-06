@@ -26,6 +26,7 @@ export type BankConnection = {
   id: string;
   user_id: string;
   provider: string;
+  provider_item_id?: string;
   status: 'active' | 'disconnected';
   last_sync: string;
   created_at: string;

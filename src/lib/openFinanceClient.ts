@@ -1,46 +1,8 @@
 import { supabase } from './supabaseClient';
 import { BankConnection, OpenFinanceTransaction } from '../types';
 
-// Simulador de Open Finance para ZimFinance
-// Em produção, isso integraria com a API da Pluggy.ai ou Belvo
-
-const MOCK_TRANSACTIONS: OpenFinanceTransaction[] = [
-  {
-    id: '',
-    external_transaction_id: 'tx_123abc',
-    date: new Date().toISOString().split('T')[0],
-    description: 'Pix Enviado - Mercado Livre',
-    amount: 149.90,
-    type: 'expense'
-  },
-  {
-    id: '',
-    external_transaction_id: 'tx_456def',
-    date: new Date().toISOString().split('T')[0],
-    description: 'Compra Débito - Padaria Central',
-    amount: 35.50,
-    type: 'expense'
-  },
-  {
-    id: '',
-    external_transaction_id: 'tx_789ghi',
-    date: new Date(Date.now() - 86400000).toISOString().split('T')[0], // ontem
-    description: 'Pix Recebido - João da Silva',
-    amount: 250.00,
-    type: 'income'
-  },
-  {
-    id: '',
-    external_transaction_id: 'tx_012jkl',
-    date: new Date(Date.now() - 86400000 * 2).toISOString().split('T')[0],
-    description: 'Compra Crédito - Netflix',
-    amount: 55.90,
-    type: 'expense'
-  }
-];
-
 export const openFinanceClient = {
-  // Busca conexões ativas do usuário
+  // Busca conexões ativas do usuário no Supabase
   async getConnections(userId: string): Promise<BankConnection[]> {
     const { data, error } = await supabase
       .from('bank_connections')
@@ -55,28 +17,41 @@ export const openFinanceClient = {
     return data || [];
   },
 
-  // Simula o fluxo de conexão (widget)
-  async connectBank(userId: string, provider: string): Promise<BankConnection | null> {
-    // Em prod, abre o widget e aguarda sucesso. Aqui vamos apenas criar no DB.
+  // Busca o connectToken na Vercel Serverless Function
+  async getConnectToken(): Promise<string | null> {
+    try {
+      const res = await fetch('/api/pluggy/token');
+      if (!res.ok) throw new Error('Falha ao obter connect token');
+      const data = await res.json();
+      return data.accessToken;
+    } catch (err) {
+      console.error(err);
+      return null;
+    }
+  },
+
+  // Salva a nova conexão após o sucesso no widget da Pluggy
+  async saveConnection(userId: string, provider: string, providerItemId: string): Promise<BankConnection | null> {
     const { data, error } = await supabase
       .from('bank_connections')
       .insert({
         user_id: userId,
         provider,
+        provider_item_id: providerItemId,
         status: 'active'
       })
       .select()
       .single();
 
     if (error) {
-      console.error('Erro ao conectar banco:', error);
+      console.error('Erro ao salvar conexão:', error);
       return null;
     }
     
     return data;
   },
 
-  // Desconecta
+  // Desconecta a conta bancária
   async disconnectBank(connectionId: string): Promise<boolean> {
     const { error } = await supabase
       .from('bank_connections')
@@ -86,24 +61,36 @@ export const openFinanceClient = {
     return !error;
   },
 
-  // Busca transações bancárias não importadas
-  async fetchRecentTransactions(userId: string, connectionId: string): Promise<OpenFinanceTransaction[]> {
-    // 1. Pega os IDs importados para filtrar
-    const { data: imported } = await supabase
-      .from('imported_transactions')
-      .select('external_transaction_id')
-      .eq('user_id', userId);
-      
-    const importedIds = new Set(imported?.map(t => t.external_transaction_id) || []);
+  // Busca transações reais via Pluggy na Vercel
+  async fetchRecentTransactions(userId: string, connection: BankConnection): Promise<OpenFinanceTransaction[]> {
+    if (!connection.provider_item_id) return [];
 
-    // 2. Retorna transações mockadas marcando as que já foram importadas
-    return MOCK_TRANSACTIONS.map(tx => ({
-      ...tx,
-      imported: importedIds.has(tx.external_transaction_id)
-    }));
+    try {
+      // 1. Busca transações da API (Vercel)
+      const res = await fetch(`/api/pluggy/transactions?itemId=${connection.provider_item_id}`);
+      if (!res.ok) throw new Error('Erro ao buscar transações da Pluggy');
+      const realTxs: OpenFinanceTransaction[] = await res.json();
+
+      // 2. Pega os IDs importados para filtrar
+      const { data: imported } = await supabase
+        .from('imported_transactions')
+        .select('external_transaction_id')
+        .eq('user_id', userId);
+        
+      const importedIds = new Set(imported?.map(t => t.external_transaction_id) || []);
+
+      // 3. Retorna transações marcando as importadas
+      return realTxs.map(tx => ({
+        ...tx,
+        imported: importedIds.has(tx.external_transaction_id)
+      }));
+    } catch (err) {
+      console.error(err);
+      return [];
+    }
   },
 
-  // Importa uma transação para o ZimFinance (marca no log)
+  // Salva log de importação no Supabase
   async markAsImported(userId: string, connectionId: string, tx: OpenFinanceTransaction): Promise<boolean> {
     const { error } = await supabase
       .from('imported_transactions')

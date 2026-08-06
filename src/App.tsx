@@ -35,6 +35,7 @@ import {
 import { supabase } from './lib/supabaseClient';
 import { openFinanceClient } from './lib/openFinanceClient';
 import { BankConnection, OpenFinanceTransaction } from './types';
+import { PluggyConnect } from 'react-pluggy-connect';
 import {
   BarChart,
   Bar,
@@ -211,6 +212,7 @@ export default function App() {
   const [showOfModal, setShowOfModal] = useState(false);
   const [ofLoading, setOfLoading] = useState(false);
   const [selectedConnection, setSelectedConnection] = useState<BankConnection | null>(null);
+  const [pluggyToken, setPluggyToken] = useState<string | null>(null);
 
   const currentMonthId = `${currentYear}-${String(currentMonthIndex + 1).padStart(2, '0')}`;
 
@@ -288,14 +290,30 @@ export default function App() {
     setBankConnections(cons);
   };
 
-  const handleConnectBank = async (provider: string) => {
+  const handleConnectBank = async () => {
     if (!session?.user?.id) return;
     setOfLoading(true);
-    const conn = await openFinanceClient.connectBank(session.user.id, provider);
+    const token = await openFinanceClient.getConnectToken();
+    if (token) {
+      setPluggyToken(token);
+    } else {
+      alert("Erro ao obter token de conexão com o banco.");
+    }
+    setOfLoading(false);
+  };
+
+  const handlePluggySuccess = async (itemData: any) => {
+    if (!session?.user?.id) return;
+    // Salva a nova conexão
+    const conn = await openFinanceClient.saveConnection(
+      session.user.id,
+      itemData.item.connector.name,
+      itemData.item.id
+    );
     if (conn) {
       setBankConnections(prev => [...prev, conn]);
     }
-    setOfLoading(false);
+    setPluggyToken(null);
   };
 
   const openBankTransactions = async (conn: BankConnection) => {
@@ -1715,7 +1733,7 @@ export default function App() {
             </div>
 
             <button
-              onClick={() => bankConnections.length > 0 ? openBankTransactions(bankConnections[0]) : handleConnectBank('Nubank')}
+              onClick={() => bankConnections.length > 0 ? openBankTransactions(bankConnections[0]) : handleConnectBank()}
               className="flex items-center gap-1.5 bg-indigo-500/15 hover:bg-indigo-500/25 text-indigo-400 border border-indigo-500/30 px-3 py-1.5 rounded-xl text-xs font-bold transition-all shadow-sm shadow-indigo-500/10 cursor-pointer"
             >
               {ofLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Landmark className="w-3.5 h-3.5" />}
@@ -2957,6 +2975,19 @@ export default function App() {
             </div>
           </div>
         </div>
+      )}
+
+      {pluggyToken && (
+        <PluggyConnect
+          connectToken={pluggyToken}
+          onSuccess={handlePluggySuccess}
+          onError={(error) => {
+            console.error('Pluggy error:', error);
+            setPluggyToken(null);
+            alert('Erro ao conectar com o banco. Tente novamente.');
+          }}
+          onClose={() => setPluggyToken(null)}
+        />
       )}
     </div>
   );
