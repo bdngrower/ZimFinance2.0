@@ -37,33 +37,66 @@ export function parseExpenseText(text: string, cards: any[] = []): ParsedExpense
 
   const lowerDesc = description.toLowerCase();
   
-  // 1. Detect target card
+  // 1. Detect target card - sort by name length descending to match longest names first
   let targetCardId: string | undefined;
-  for (const card of cards) {
-    const cardName = card.name?.toLowerCase() || '';
-    if (cardName && (lowerDesc.includes(`cartão ${cardName}`) || lowerDesc.includes(`cartao ${cardName}`) || lowerDesc.includes(`no ${cardName}`))) {
-      targetCardId = card.id;
-      // Optionally clean up the card mention from description
-      const regex1 = new RegExp(`no cart[ãa]o ${cardName}`, 'i');
-      const regex2 = new RegExp(`no ${cardName}`, 'i');
-      const regex3 = new RegExp(`cart[ãa]o ${cardName}`, 'i');
-      description = description.replace(regex1, '').replace(regex2, '').replace(regex3, '').trim();
-      break;
+  const sortedCards = [...cards].sort((a, b) => (b.name?.length || 0) - (a.name?.length || 0));
+  
+  for (const card of sortedCards) {
+    const cardName = (card.name || '').toLowerCase().trim();
+    if (!cardName) continue;
+    
+    // Strip "cartão" / "cartao" prefix from the stored card name for matching
+    const cleanCardName = cardName.replace(/^cart[ãa]o\s+/i, '').trim();
+    
+    // Try multiple match patterns:
+    // 1. "cartão <cleanName>" or "cartao <cleanName>"
+    // 2. "no <fullName>" or "no <cleanName>"
+    // 3. Just "<fullName>" or "<cleanName>" as a standalone word group at end of text
+    const patterns = [
+      `cart[ãa]o\\s+${escapeRegex(cleanCardName)}`,
+      `no\\s+${escapeRegex(cardName)}`,
+      `no\\s+${escapeRegex(cleanCardName)}`,
+      `${escapeRegex(cardName)}`,
+      `${escapeRegex(cleanCardName)}`,
+    ];
+    
+    let matched = false;
+    for (const pattern of patterns) {
+      const regex = new RegExp(pattern, 'i');
+      if (regex.test(lowerDesc)) {
+        targetCardId = card.id;
+        // Clean up: remove the card reference and surrounding prepositions
+        const cleanupPatterns = [
+          new RegExp(`\\s*(no\\s+)?cart[ãa]o\\s+${escapeRegex(cleanCardName)}`, 'ig'),
+          new RegExp(`\\s*(no\\s+)?${escapeRegex(cardName)}`, 'ig'),
+          new RegExp(`\\s*(no\\s+)?${escapeRegex(cleanCardName)}`, 'ig'),
+        ];
+        for (const cp of cleanupPatterns) {
+          description = description.replace(cp, '');
+        }
+        description = description.trim();
+        matched = true;
+        break;
+      }
     }
+    if (matched) break;
   }
+
+  // Re-evaluate lowerDesc after card cleanup
+  const lowerDescAfterCard = description.toLowerCase();
 
   // 2. Detect period (pagamento vs adiantamento/vale)
   let period: 'pagamento' | 'vale' | undefined;
   
-  if (lowerDesc.includes('pagamento') || lowerDesc.includes('pgto') || lowerDesc.includes('salário') || lowerDesc.includes('salario')) {
+  if (lowerDescAfterCard.includes('pagamento') || lowerDescAfterCard.includes('pgto') || lowerDescAfterCard.includes('salário') || lowerDescAfterCard.includes('salario')) {
     period = 'pagamento';
-    description = description.replace(/no pagamento/i, '').replace(/pagamento/i, '').replace(/no pgto/i, '').replace(/pgto/i, '').trim();
-  } else if (lowerDesc.includes('vale') || lowerDesc.includes('adiantamento') || lowerDesc.includes('adto')) {
+    description = description.replace(/\s*(no\s+)?pagamento/gi, '').replace(/\s*(no\s+)?pgto/gi, '').replace(/\s*sal[aá]rio/gi, '').trim();
+  } else if (lowerDescAfterCard.includes('adiantamento') || lowerDescAfterCard.includes('adto') || lowerDescAfterCard.includes('vale')) {
     period = 'vale';
-    description = description.replace(/no adiantamento/i, '').replace(/adiantamento/i, '').replace(/no vale/i, '').replace(/vale/i, '').trim();
+    description = description.replace(/\s*(no\s+)?adiantamento/gi, '').replace(/\s*(no\s+)?adto/gi, '').replace(/\s*(no\s+)?vale/gi, '').trim();
   } else {
     // Detect day
-    const dayMatch = lowerDesc.match(/dia\s*(\d{1,2})/i);
+    const dayMatch = lowerDescAfterCard.match(/dia\s*(\d{1,2})/i);
     if (dayMatch) {
       const day = parseInt(dayMatch[1], 10);
       if (day <= 5) {
@@ -71,13 +104,13 @@ export function parseExpenseText(text: string, cards: any[] = []): ParsedExpense
       } else if (day > 5) {
         period = 'vale';
       }
-      description = description.replace(dayMatch[0], '').replace(/no\s*$/i, '').trim();
+      description = description.replace(/\s*(no\s+)?dia\s*\d{1,2}/gi, '').trim();
     }
   }
 
-  // Clean trailing "no", "do" etc.
-  description = description.replace(/ (no|do|na|da)$/i, '').trim();
-  description = description.replace(/^(no|do|na|da) /i, '').trim();
+  // Clean trailing/leading prepositions
+  description = description.replace(/\s+(no|do|na|da)$/i, '').trim();
+  description = description.replace(/^(no|do|na|da)\s+/i, '').trim();
 
   // Capitalize first letter of description
   if (description) {
@@ -85,4 +118,8 @@ export function parseExpenseText(text: string, cards: any[] = []): ParsedExpense
   }
 
   return { amount, description, period, targetCardId };
+}
+
+function escapeRegex(str: string): string {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
