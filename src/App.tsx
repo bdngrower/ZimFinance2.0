@@ -28,6 +28,8 @@ import {
   CheckCircle,
   XCircle,
   Shield,
+  Download,
+  Smartphone,
 } from 'lucide-react';
 import { supabase } from './lib/supabaseClient';
 import {
@@ -196,6 +198,10 @@ export default function App() {
   const [recTargetYear, setRecTargetYear] = useState<number>(currentYear);
   const [recLoading, setRecLoading] = useState(false);
 
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+  const [isIOS, setIsIOS] = useState(false);
+  const [showIOSModal, setShowIOSModal] = useState(false);
+
   const currentMonthId = `${currentYear}-${String(currentMonthIndex + 1).padStart(2, '0')}`;
 
   useEffect(() => {
@@ -208,8 +214,38 @@ export default function App() {
       setSession(session);
     });
 
-    return () => subscription.unsubscribe();
+    // PWA Install Prompt Listener
+    const handleBeforeInstall = (e: Event) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+    };
+
+    window.addEventListener('beforeinstallprompt', handleBeforeInstall);
+
+    // Check iOS
+    const userAgent = window.navigator.userAgent.toLowerCase();
+    const isIosDevice = /iphone|ipad|ipod/.test(userAgent);
+    setIsIOS(isIosDevice);
+
+    return () => {
+      subscription.unsubscribe();
+      window.removeEventListener('beforeinstallprompt', handleBeforeInstall);
+    };
   }, []);
+
+  const triggerInstallPWA = async () => {
+    if (deferredPrompt) {
+      deferredPrompt.prompt();
+      const { outcome } = await deferredPrompt.userChoice;
+      if (outcome === 'accepted') {
+        setDeferredPrompt(null);
+      }
+    } else if (isIOS) {
+      setShowIOSModal(true);
+    } else {
+      alert("Para instalar o ZimFinance no seu dispositivo, acesse pelo navegador do seu celular e selecione 'Adicionar à Tela de Início' no menu do navegador.");
+    }
+  };
 
   useEffect(() => {
     if (session?.user?.id) {
@@ -1489,6 +1525,17 @@ export default function App() {
               Configurações
             </button>
           )}
+
+          <button
+            onClick={() => {
+              triggerInstallPWA();
+              setSidebarOpen(false);
+            }}
+            className="w-full flex items-center px-4 py-3 rounded-2xl font-bold text-emerald-400 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/20 transition-all mt-4 cursor-pointer"
+          >
+            <Download className="w-5 h-5 mr-3 shrink-0" />
+            Instalar App
+          </button>
         </nav>
 
         <div className="p-4 border-t border-white/5">
@@ -1592,6 +1639,15 @@ export default function App() {
                 </>
               )}
             </div>
+
+            <button
+              onClick={triggerInstallPWA}
+              className="hidden sm:flex items-center gap-1.5 bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-400 border border-emerald-500/30 px-3 py-1.5 rounded-xl text-xs font-bold transition-all shadow-sm shadow-emerald-500/10 cursor-pointer"
+              title="Instalar ZimFinance como App no dispositivo"
+            >
+              <Smartphone className="w-4 h-4" />
+              Instalar App
+            </button>
 
             <div className="relative">
               <button
@@ -2720,6 +2776,37 @@ export default function App() {
           </button>
         </div>
       </nav>
+
+      {showIOSModal && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-md z-[100] flex items-center justify-center p-4">
+          <div className="bg-[#1a1d23] border border-white/10 p-6 rounded-3xl max-w-sm w-full space-y-4 text-center shadow-2xl relative animate-in fade-in zoom-in-95">
+            <button onClick={() => setShowIOSModal(false)} className="absolute top-4 right-4 p-1 text-white/40 hover:text-white rounded-lg">
+              <X className="w-5 h-5" />
+            </button>
+            <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center mx-auto text-emerald-400">
+              <Smartphone className="w-6 h-6" />
+            </div>
+            <h3 className="font-extrabold text-lg text-white">Instalar no iPhone / iPad</h3>
+            <div className="text-xs text-white/70 space-y-2 text-left bg-black/30 p-4 rounded-2xl border border-white/5">
+              <p className="flex items-center gap-2">
+                <span className="w-5 h-5 rounded-full bg-emerald-500/20 text-emerald-400 font-bold flex items-center justify-center text-[10px] shrink-0">1</span>
+                <span>Toque no botão <strong className="text-emerald-400">Compartilhar</strong> no Safari (ícone com quadrado e seta).</span>
+              </p>
+              <p className="flex items-center gap-2">
+                <span className="w-5 h-5 rounded-full bg-emerald-500/20 text-emerald-400 font-bold flex items-center justify-center text-[10px] shrink-0">2</span>
+                <span>Role para baixo e selecione <strong className="text-white">'Adicionar à Tela de Início'</strong>.</span>
+              </p>
+              <p className="flex items-center gap-2">
+                <span className="w-5 h-5 rounded-full bg-emerald-500/20 text-emerald-400 font-bold flex items-center justify-center text-[10px] shrink-0">3</span>
+                <span>Pronto! O ZimFinance funcionará como App nativo no seu iPhone.</span>
+              </p>
+            </div>
+            <button onClick={() => setShowIOSModal(false)} className="w-full bg-emerald-500 text-white font-bold py-2.5 rounded-xl hover:bg-emerald-400 transition-all cursor-pointer">
+              Entendi
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
