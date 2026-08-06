@@ -1607,19 +1607,17 @@ export default function App() {
             Lançamentos
           </button>
 
-          {userProfile?.role === 'admin' && (
-            <button
-              onClick={() => {
-                setActiveView('settings');
-                setSidebarOpen(false);
-                loadAdminUsers();
-              }}
-              className={`w-full flex items-center px-4 py-3.5 rounded-2xl font-bold transition-all ${activeView === 'settings' ? 'bg-violet-500/10 text-violet-400 border border-violet-500/20' : 'text-white/50 hover:text-white hover:bg-white/5 border border-transparent'}`}
-            >
-              <Settings className="w-5 h-5 mr-3" />
-              Configurações
-            </button>
-          )}
+          <button
+            onClick={() => {
+              setActiveView('settings');
+              setSidebarOpen(false);
+              loadAdminUsers();
+            }}
+            className={`w-full flex items-center px-4 py-3.5 rounded-2xl font-bold transition-all ${activeView === 'settings' ? 'bg-violet-500/10 text-violet-400 border border-violet-500/20' : 'text-white/50 hover:text-white hover:bg-white/5 border border-transparent'}`}
+          >
+            <Settings className="w-5 h-5 mr-3" />
+            Configurações
+          </button>
 
           <button
             onClick={() => {
@@ -1732,13 +1730,15 @@ export default function App() {
               )}
             </div>
 
-            <button
-              onClick={() => bankConnections.length > 0 ? openBankTransactions(bankConnections[0]) : handleConnectBank()}
-              className="flex items-center gap-1.5 bg-indigo-500/15 hover:bg-indigo-500/25 text-indigo-400 border border-indigo-500/30 px-3 py-1.5 rounded-xl text-xs font-bold transition-all shadow-sm shadow-indigo-500/10 cursor-pointer"
-            >
-              {ofLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Landmark className="w-3.5 h-3.5" />}
-              <span className="hidden sm:inline">{bankConnections.length > 0 ? 'Extrato Bancário' : 'Conectar Banco'}</span>
-            </button>
+            {bankConnections.length > 0 && (
+              <button
+                onClick={() => openBankTransactions(bankConnections[0])}
+                className="flex items-center gap-1.5 bg-indigo-500/15 hover:bg-indigo-500/25 text-indigo-400 border border-indigo-500/30 px-3 py-1.5 rounded-xl text-xs font-bold transition-all shadow-sm shadow-indigo-500/10 cursor-pointer"
+              >
+                {ofLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Landmark className="w-3.5 h-3.5" />}
+                <span className="hidden sm:inline">Extrato Bancário</span>
+              </button>
+            )}
 
             <button
               onClick={triggerInstallPWA}
@@ -2477,18 +2477,76 @@ export default function App() {
           </div>
         )}
 
-        {activeView === 'settings' && userProfile?.role === 'admin' && (
+        {activeView === 'settings' && (
           <div className="flex-1 overflow-y-auto p-3 lg:p-6 pb-20 lg:pb-6 relative z-10 custom-scrollbar">
             <div className="max-w-2xl mx-auto space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
-              <div className="flex items-center gap-3 mb-2">
-                <div className="p-2.5 bg-violet-500/10 border border-violet-500/20 rounded-xl">
-                  <Shield className="w-5 h-5 text-violet-400" />
+              
+              {/* Integrações / Open Finance Section */}
+              <div className="flex items-center gap-3 mb-2 mt-4">
+                <div className="p-2.5 bg-indigo-500/10 border border-indigo-500/20 rounded-xl">
+                  <Landmark className="w-5 h-5 text-indigo-400" />
                 </div>
                 <div>
-                  <h2 className="font-extrabold text-lg">Painel Administrativo</h2>
-                  <p className="text-white/40 text-xs">Gerencie usuários do ZimFinance</p>
+                  <h2 className="font-extrabold text-lg">Integrações Bancárias</h2>
+                  <p className="text-white/40 text-xs">Conecte sua conta via Open Finance</p>
                 </div>
               </div>
+
+              <div className="bg-white/3 border border-white/8 rounded-2xl overflow-hidden p-5 space-y-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="font-bold text-sm">Contas Conectadas</h3>
+                    <p className="text-xs text-white/40 mt-1">Gerencie suas conexões seguras da Pluggy</p>
+                  </div>
+                  <button
+                    onClick={() => handleConnectBank()}
+                    className="flex items-center gap-1.5 bg-indigo-500/15 hover:bg-indigo-500/25 text-indigo-400 border border-indigo-500/30 px-3 py-1.5 rounded-xl text-xs font-bold transition-all shadow-sm shadow-indigo-500/10 cursor-pointer"
+                  >
+                    {ofLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Landmark className="w-3.5 h-3.5" />}
+                    <span>Conectar Banco</span>
+                  </button>
+                </div>
+                
+                {bankConnections.length > 0 ? (
+                  <div className="space-y-2 mt-4">
+                    {bankConnections.map(conn => (
+                      <div key={conn.id} className="flex items-center justify-between bg-black/20 p-3 rounded-xl border border-white/5">
+                        <div className="flex items-center gap-3">
+                          <div className="p-2 bg-indigo-500/20 rounded-lg">
+                            <Landmark className="w-4 h-4 text-indigo-400" />
+                          </div>
+                          <div>
+                            <p className="font-bold text-sm">{conn.provider}</p>
+                            <p className="text-[10px] text-emerald-400">Conectado</p>
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => openBankTransactions(conn)}
+                          className="px-3 py-1.5 bg-white/5 hover:bg-white/10 text-white text-xs font-bold rounded-lg transition-all"
+                        >
+                          Ver Extrato
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-center py-6 text-white/40 text-sm">
+                    Nenhuma conta conectada no momento.
+                  </div>
+                )}
+              </div>
+
+              {userProfile?.role === 'admin' && (
+                <>
+                  <div className="flex items-center gap-3 mb-2 mt-8">
+                    <div className="p-2.5 bg-violet-500/10 border border-violet-500/20 rounded-xl">
+                      <Shield className="w-5 h-5 text-violet-400" />
+                    </div>
+                    <div>
+                      <h2 className="font-extrabold text-lg">Painel Administrativo</h2>
+                      <p className="text-white/40 text-xs">Gerencie usuários do ZimFinance</p>
+                    </div>
+                  </div>
 
               <div className="bg-white/3 border border-white/8 rounded-2xl overflow-hidden">
                 <div className="flex items-center gap-2 px-5 py-4 border-b border-white/5">
@@ -2577,6 +2635,8 @@ export default function App() {
                   </div>
                 )}
               </div>
+              </>
+              )}
             </div>
           </div>
         )}
@@ -2854,18 +2914,18 @@ export default function App() {
             <span className="text-[10px] font-bold mt-0.5">Lançamentos</span>
           </button>
 
-          {userProfile?.role === 'admin' && (
-            <button
-              onClick={() => {
-                setActiveView('settings');
+          <button
+            onClick={() => {
+              setActiveView('settings');
+              if (userProfile?.role === 'admin') {
                 loadAdminUsers();
-              }}
-              className={`flex flex-col items-center justify-center flex-1 h-full transition-all ${activeView === 'settings' ? 'text-violet-400' : 'text-white/40'}`}
-            >
-              <Settings className="w-5 h-5" />
-              <span className="text-[10px] font-bold mt-0.5">Admin</span>
-            </button>
-          )}
+              }
+            }}
+            className={`flex flex-col items-center justify-center flex-1 h-full transition-all ${activeView === 'settings' ? 'text-violet-400' : 'text-white/40'}`}
+          >
+            <Settings className="w-5 h-5" />
+            <span className="text-[10px] font-bold mt-0.5">Ajustes</span>
+          </button>
 
           <button
             onClick={handleLogout}
