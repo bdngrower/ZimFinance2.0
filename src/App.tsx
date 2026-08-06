@@ -33,6 +33,7 @@ import {
   Landmark,
 } from 'lucide-react';
 import { supabase } from './lib/supabaseClient';
+import { QuickEntryInput } from './components/QuickEntryInput';
 import {
   BarChart,
   Bar,
@@ -97,6 +98,8 @@ type ItemRecord = {
   recurring_group_id?: string;
   linked_share_id?: string;
   is_paid?: boolean;
+  closing_day?: number;
+  due_day?: number;
 };
 
 type CardExpense = {
@@ -107,6 +110,7 @@ type CardExpense = {
   is_recurring?: boolean;
   recurring_group_id?: string;
   is_paid?: boolean;
+  purchase_date?: string;
 };
 
 type UserProfile = {
@@ -708,6 +712,8 @@ export default function App() {
         pagamento: item.pagamento,
         vale: item.vale,
         type: item.type,
+        closing_day: item.closing_day,
+        due_day: item.due_day,
       })
       .eq('id', item.id);
 
@@ -726,6 +732,8 @@ export default function App() {
           pagamento: item.pagamento,
           vale: item.vale,
           type: item.type,
+          closing_day: item.closing_day,
+          due_day: item.due_day,
         })
         .eq('recurring_group_id', item.recurring_group_id)
         .gt('month_id', currentMonthId);
@@ -908,6 +916,23 @@ export default function App() {
     setEditingItems(prev => ({ ...prev, [newItem.id]: true }));
   };
 
+  const handleQuickEntry = async (expense: any) => {
+    if (!expense.amount || !expense.description) return;
+    const type = 'expense_pagamento'; // default type
+    const newItem = {
+      id: Math.random().toString(36).substr(2, 9),
+      month_id: currentMonthId,
+      type,
+      name: expense.description,
+      pagamento: expense.amount,
+      vale: 0,
+    };
+    setItems(prev => [...prev, newItem]);
+    await supabase.from('items').insert(newItem);
+    // Don't set to editing mode if they quickly added it, or maybe do so they can categorize
+    setEditingItems(prev => ({ ...prev, [newItem.id]: true }));
+  };
+
   const removeItem = async (id: string) => {
     const item = items.find(i => i.id === id);
     if (!item) return;
@@ -983,7 +1008,7 @@ export default function App() {
   const saveCardExpense = async (cardItem: ItemRecord, exp: CardExpense) => {
     await supabase
       .from('card_expenses')
-      .update({ name: exp.name, value: Number(exp.value) || 0 })
+      .update({ name: exp.name, value: Number(exp.value) || 0, purchase_date: exp.purchase_date })
       .eq('id', exp.id);
 
     let updateFuture = false;
@@ -1882,7 +1907,9 @@ export default function App() {
                   </div>
                 ) : (
                   <div className="space-y-4">
+                    <QuickEntryInput onAddEntry={handleQuickEntry} />
                     <div className="bg-white/5 backdrop-blur-xl rounded-2xl border border-white/10 overflow-hidden">
+
                       <div className="flex items-center justify-between px-4 py-2.5 border-b border-white/5">
                         <span className="text-[10px] font-bold text-white/40 uppercase tracking-widest flex items-center gap-1.5">
                           <TrendingUp className="w-3 h-3 text-emerald-400" /> Receitas

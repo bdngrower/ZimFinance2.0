@@ -4,6 +4,8 @@ export type ExpenseRecord = {
   pagamento: number;
   vale: number;
   is_paid?: boolean;
+  closing_day?: number;
+  due_day?: number;
 };
 
 export type IncomeRecord = {
