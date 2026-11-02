@@ -3082,7 +3082,7 @@ export default function App() {
                 </span>
                 <span className="flex-1 min-w-0">
                   <span className="block text-sm font-bold text-ink">Categorias</span>
-                  <span className="block text-xs text-ink/70">Crie e exclua suas categorias</span>
+                  <span className="block text-xs text-ink/70">Veja as padrão e crie as suas</span>
                 </span>
                 <ChevronRight className="w-4 h-4 text-ink/50 shrink-0" />
               </button>

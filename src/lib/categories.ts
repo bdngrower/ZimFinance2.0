@@ -2,19 +2,25 @@ export type Category = {
   id: string;
   name: string;
   icon: string;
+  description?: string;
 };
 
-export const OTHER_CATEGORY: Category = { id: 'outros', name: 'Outros', icon: 'tag' };
+export const OTHER_CATEGORY: Category = {
+  id: 'outros',
+  name: 'Outros',
+  icon: 'tag',
+  description: 'O que não se encaixa nas demais e o valor base digitado direto no cartão',
+};
 
 export const DEFAULT_CATEGORIES: Category[] = [
-  { id: 'moradia', name: 'Moradia', icon: 'home' },
-  { id: 'alimentacao', name: 'Alimentação', icon: 'utensils' },
-  { id: 'mercado', name: 'Mercado', icon: 'cart' },
-  { id: 'transporte', name: 'Transporte', icon: 'car' },
-  { id: 'saude', name: 'Saúde', icon: 'health' },
-  { id: 'lazer', name: 'Lazer', icon: 'ticket' },
-  { id: 'assinaturas', name: 'Assinaturas', icon: 'tv' },
-  { id: 'educacao', name: 'Educação', icon: 'education' },
+  { id: 'moradia', name: 'Moradia', icon: 'home', description: 'Aluguel, condomínio, água, luz, gás, internet, telefone, IPTU' },
+  { id: 'alimentacao', name: 'Alimentação', icon: 'utensils', description: 'Restaurante, lanche, pizza, açaí, café, iFood, churrasco' },
+  { id: 'mercado', name: 'Mercado', icon: 'cart', description: 'Supermercado, feira, hortifrúti, atacadão, empório' },
+  { id: 'transporte', name: 'Transporte', icon: 'car', description: 'Gasolina, Uber, 99, estacionamento, pedágio, oficina, IPVA' },
+  { id: 'saude', name: 'Saúde', icon: 'health', description: 'Farmácia, consulta, dentista, exames, óculos, academia' },
+  { id: 'lazer', name: 'Lazer', icon: 'ticket', description: 'Viagem, Airbnb, cinema, shows, festas, aniversários' },
+  { id: 'assinaturas', name: 'Assinaturas', icon: 'tv', description: 'Netflix, Spotify, YouTube, Google One, anuidade de cartão' },
+  { id: 'educacao', name: 'Educação', icon: 'education', description: 'Faculdade, escola, cursos, livros' },
   OTHER_CATEGORY,
 ];
 

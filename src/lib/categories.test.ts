@@ -23,6 +23,12 @@ describe('suggestCategory', () => {
   });
 });
 
+describe('DEFAULT_CATEGORIES', () => {
+  it('explica o que entra em cada categoria padrão', () => {
+    expect(DEFAULT_CATEGORIES.every(category => category.description)).toBe(true);
+  });
+});
+
 describe('groupByCategory', () => {
   const items = [
     { id: 'a', name: 'Aluguel', type: 'expense_pagamento', pagamento: 1000, vale: 0, category: 'moradia', month_id: '2026-11' },

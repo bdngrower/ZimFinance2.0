@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import {
   Baby, Briefcase, Car, Dog, Gift, GraduationCap, HeartPulse, Home, Plane, Plus, Shirt, ShoppingCart, Tag, Ticket, Trash2, Tv, Utensils, X,
 } from 'lucide-react';
-import { Category } from '../lib/categories';
+import { Category, DEFAULT_CATEGORIES } from '../lib/categories';
 
 const ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
   home: Home,
@@ -97,13 +97,14 @@ export function CategoryManagerModal({
       <div className="absolute inset-0 bg-black/60" onClick={onClose} />
       <div className="relative bg-mint rounded-3xl w-full max-w-md max-h-[90vh] overflow-y-auto shadow-2xl p-6 space-y-5">
         <div className="flex items-center justify-between">
-          <h2 className="text-lg font-bold text-ink">Suas categorias</h2>
+          <h2 className="text-lg font-bold text-ink">Categorias</h2>
           <button onClick={onClose} aria-label="Fechar" className="p-2 text-ink/70 hover:bg-soft rounded-xl transition-all">
             <X className="w-5 h-5" />
           </button>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-3 bg-white rounded-2xl p-4 shadow-card">
+          <h3 className="text-sm font-bold text-ink">Nova categoria</h3>
           <label className="block text-xs font-medium text-ink/70">
             Nome
             <input
@@ -142,8 +143,9 @@ export function CategoryManagerModal({
         </form>
 
         <div className="space-y-2">
+          <h3 className="text-sm font-bold text-ink">Suas categorias</h3>
           {customCategories.length === 0 ? (
-            <p className="text-sm text-ink/65 text-center py-2">Você ainda não criou categorias.</p>
+            <p className="text-sm text-ink/65 py-1">Você ainda não criou nenhuma.</p>
           ) : (
             customCategories.map(category => (
               <div key={category.id} className="flex items-center gap-3 bg-white rounded-2xl p-3 shadow-card">
@@ -157,6 +159,24 @@ export function CategoryManagerModal({
               </div>
             ))
           )}
+        </div>
+
+        <div className="space-y-2">
+          <h3 className="text-sm font-bold text-ink">Categorias padrão</h3>
+          <p className="text-xs text-ink/70">
+            Já vêm com o app e não podem ser excluídas. A categoria é sugerida pelo nome do lançamento, e você pode trocar quando quiser.
+          </p>
+          {DEFAULT_CATEGORIES.map(category => (
+            <div key={category.id} className="flex items-center gap-3 bg-white rounded-2xl p-3 shadow-card">
+              <span className="w-9 h-9 rounded-xl bg-sky-tile text-ink flex items-center justify-center shrink-0">
+                <CategoryIcon icon={category.icon} className="w-4 h-4" />
+              </span>
+              <span className="flex-1 min-w-0">
+                <span className="block text-sm font-semibold text-ink">{category.name}</span>
+                <span className="block text-xs text-ink/70">{category.description}</span>
+              </span>
+            </div>
+          ))}
         </div>
       </div>
     </div>
