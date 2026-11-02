@@ -91,6 +91,33 @@ const formatCurrency = (value: number) => {
 };
 
 // Verifica se um item já foi compartilhado
+const YearChartTooltip = ({ active, payload, label }: any) => {
+  if (!active || !payload?.length) return null;
+  const { Receitas, Despesas, Saldo } = payload[0].payload;
+
+  return (
+    <div className="bg-surface rounded-2xl shadow-card border border-ink/10 p-3 text-xs space-y-1 min-w-[170px]">
+      <p className="font-bold text-ink pb-1">{label}</p>
+      {[
+        { name: 'Receitas', value: Receitas, color: '#00D09E' },
+        { name: 'Despesas', value: Despesas, color: '#0068FF' },
+      ].map(row => (
+        <div key={row.name} className="flex items-center justify-between gap-4">
+          <span className="flex items-center gap-1.5 text-ink/80">
+            <span className="w-2 h-2 rounded-full" style={{ backgroundColor: row.color }} />
+            {row.name}
+          </span>
+          <span className="font-semibold text-ink tabular-nums">{formatCurrency(row.value)}</span>
+        </div>
+      ))}
+      <div className="flex items-center justify-between gap-4 border-t border-ink/10 pt-1">
+        <span className="text-ink/80">Saldo</span>
+        <span className={`font-bold tabular-nums ${Saldo < 0 ? 'text-rose-700' : 'text-primary-dark'}`}>{formatCurrency(Saldo)}</span>
+      </div>
+    </div>
+  );
+};
+
 const isShared = (itemId: string, sentShares: ExpenseShare[]) => {
   return sentShares.some(s => s.source_item_id === itemId && s.status !== 'rejected');
 };
@@ -2275,7 +2302,7 @@ export default function App() {
               className="relative h-7 rounded-full bg-mint overflow-hidden"
             >
               <div
-                className={`absolute inset-y-0 left-0 rounded-full flex items-center pl-3 text-[11px] font-bold text-mint transition-all duration-500 ${incomeUsed > 100 ? 'bg-rose-700' : 'bg-ink'}`}
+                className={`absolute inset-y-0 left-0 rounded-full flex items-center pl-3 text-[11px] font-bold transition-all duration-500 ${incomeUsed > 100 ? 'bg-rose-800 text-white' : 'bg-ink text-mint'}`}
                 style={{ width: `max(3.25rem, ${Math.min(incomeUsed, 100)}%)` }}
               >
                 {incomeUsed}%
@@ -2365,8 +2392,8 @@ export default function App() {
                               <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" vertical={false} />
                               <XAxis dataKey="name" stroke="var(--chart-axis)" fontSize={11} tickLine={false} axisLine={false} />
                               <YAxis stroke="var(--chart-axis)" fontSize={10} tickFormatter={(val) => `${Number(val) / 1000}k`} tickLine={false} axisLine={false} />
-                              <Tooltip cursor={{ fill: 'rgba(0,208,158,0.1)' }} contentStyle={{ backgroundColor: 'var(--color-surface)', border: 'none', borderRadius: '16px', color: 'var(--color-ink)', fontSize: '12px', boxShadow: '0 8px 24px rgba(9,48,48,0.12)' }} />
-                              <Legend iconType="circle" wrapperStyle={{ fontSize: '11px', paddingTop: '8px' }} />
+                              <Tooltip cursor={{ fill: 'rgba(0,208,158,0.1)' }} content={<YearChartTooltip />} />
+                              <Legend iconType="circle" itemSorter={null} wrapperStyle={{ fontSize: '11px', paddingTop: '8px' }} />
                               <Bar dataKey="Receitas" fill="#00D09E" radius={[6, 6, 0, 0]} maxBarSize={14} />
                               <Bar dataKey="Despesas" fill="#0068FF" radius={[6, 6, 0, 0]} maxBarSize={14} />
                             </BarChart>
