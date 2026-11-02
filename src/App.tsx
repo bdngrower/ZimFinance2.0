@@ -38,6 +38,8 @@ import { CardFormValues, CardManagementModal } from './components/CardManagement
 import { AccountingSource, addMonths, Card, getInvoiceMonth, isCardActiveInMonth, moveBaseAmount, splitInstallments } from './lib/cards';
 import { ParsedExpense } from './lib/nlpParser';
 import { SAVE_ERROR_EVENT } from './lib/saveErrors';
+import { Category, DEFAULT_CATEGORIES, findCategory, groupByCategory, OTHER_CATEGORY, suggestCategory } from './lib/categories';
+import { CategoryIcon, CategoryManagerModal, CategorySelect } from './components/CategoryControls';
 import {
   BarChart,
   Bar,
@@ -105,6 +107,7 @@ type ItemRecord = {
   closing_day?: number | null;
   due_day?: number | null;
   card_id?: string | null;
+  category?: string | null;
 };
 
 type CardExpense = {
@@ -116,6 +119,7 @@ type CardExpense = {
   recurring_group_id?: string;
   is_paid?: boolean;
   purchase_date?: string | null;
+  category?: string | null;
   installment_group_id?: string | null;
   installment_number?: number | null;
   installment_total?: number | null;
@@ -196,6 +200,10 @@ export default function App() {
   const [cards, setCards] = useState<Card[]>([]);
   const [saveFailed, setSaveFailed] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  const [customCategories, setCustomCategories] = useState<Category[]>([]);
+  const [isCategoryModalOpen, setCategoryModalOpen] = useState(false);
+  const [categoryTarget, setCategoryTarget] = useState<((categoryId: string) => void) | null>(null);
+  const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
   const [lancamentosTab, setLancamentosTab] = useState<'pagamento' | 'vale' | 'cartoes'>('pagamento');
   const [notifications, setNotifications] = useState<ExpenseShare[]>([]);
   const [showNotifications, setShowNotifications] = useState(false);
@@ -286,11 +294,101 @@ export default function App() {
       fetchYearData();
       loadUserProfile();
       loadNotifications();
+      loadCategories();
 
       const interval = setInterval(loadNotifications, 30000);
       return () => clearInterval(interval);
     }
   }, [currentMonthId, session?.user?.id]);
+
+  const loadCategories = async () => {
+    const { data } = await supabase
+      .from('categories')
+      .select('id, name, icon')
+      .order('created_at', { ascending: true });
+
+    if (data) setCustomCategories(data as Category[]);
+  };
+
+  const openCategoryManager = (target?: (categoryId: string) => void) => {
+    setCategoryTarget(() => target ?? null);
+    setCategoryModalOpen(true);
+  };
+
+  const createCategory = async (name: string, icon: string) => {
+    const category: Category = { id: Math.random().toString(36).substr(2, 9), name, icon };
+    setCustomCategories(prev => [...prev, category]);
+    await supabase.from('categories').insert(category);
+
+    if (categoryTarget) {
+      categoryTarget(category.id);
+      setCategoryTarget(null);
+      setCategoryModalOpen(false);
+    }
+  };
+
+  const deleteCategory = async (id: string) => {
+    const category = customCategories.find(c => c.id === id);
+    if (!category || !window.confirm(`Excluir a categoria ${category.name}? Os lançamentos dela passam para Outros.`)) return;
+
+    setCustomCategories(prev => prev.filter(c => c.id !== id));
+    await supabase.from('items').update({ category: null }).eq('category', id);
+    await supabase.from('card_expenses').update({ category: null }).eq('category', id);
+    await supabase.from('categories').delete().eq('id', id);
+    fetchData();
+    fetchYearData();
+  };
+
+  // Recorrentes mudam deste mês em diante; os anteriores ficam como estão
+  const changeItemCategory = async (item: ItemRecord, category: string | null) => {
+    setItems(prev => prev.map(i => (i.id === item.id ? { ...i, category } : i)));
+    await supabase.from('items').update({ category }).eq('id', item.id);
+
+    if (item.is_recurring && item.recurring_group_id) {
+      await supabase
+        .from('items')
+        .update({ category })
+        .eq('recurring_group_id', item.recurring_group_id)
+        .gt('month_id', currentMonthId);
+    }
+
+    fetchYearData();
+  };
+
+  // Compras recorrentes mudam nos próximos meses, e parcelas nas próximas parcelas
+  const changeExpenseCategory = async (cardId: string, exp: CardExpense, category: string | null) => {
+    setCardExpenses(prev => ({
+      ...prev,
+      [cardId]: (prev[cardId] || []).map(e => (e.id === exp.id ? { ...e, category } : e)),
+    }));
+    await supabase.from('card_expenses').update({ category }).eq('id', exp.id);
+
+    if (exp.installment_group_id) {
+      await supabase
+        .from('card_expenses')
+        .update({ category })
+        .eq('installment_group_id', exp.installment_group_id)
+        .gt('installment_number', exp.installment_number ?? 1);
+    } else if (exp.is_recurring && exp.recurring_group_id) {
+      const { data: related } = await supabase
+        .from('card_expenses')
+        .select('id, card_item_id')
+        .eq('recurring_group_id', exp.recurring_group_id);
+      const { data: relatedCards } = await supabase
+        .from('items')
+        .select('id')
+        .in('id', (related || []).map(e => e.card_item_id))
+        .gt('month_id', currentMonthId);
+      const futureCardIds = (relatedCards || []).map(c => c.id);
+      const futureIds = (related || []).filter(e => futureCardIds.includes(e.card_item_id)).map(e => e.id);
+
+      if (futureIds.length > 0) {
+        await supabase.from('card_expenses').update({ category }).in('id', futureIds);
+      }
+    }
+
+    fetchYearData();
+  };
 
   const loadUserProfile = async () => {
     if (!session?.user?.id) return;
@@ -504,6 +602,7 @@ export default function App() {
         pagamento: isPagamento ? share.share_value : 0,
         vale: !isPagamento ? share.share_value : 0,
         linked_share_id: share.id,
+        category: suggestCategory(share.expense_name),
       });
     }
 
@@ -851,7 +950,15 @@ export default function App() {
     fetchYearData();
   };
 
-  const saveItem = async (item: ItemRecord) => {
+  const saveItem = async (original: ItemRecord) => {
+    // O nome só é conhecido ao salvar, então a sugestão de categoria entra aqui
+    const item = original.type.startsWith('expense_') && !original.category
+      ? { ...original, category: suggestCategory(original.name) }
+      : original;
+    if (item !== original) {
+      setItems(prev => prev.map(i => (i.id === item.id ? { ...i, category: item.category } : i)));
+    }
+
     if (item.card_id) {
       setCards(prev => prev.map(c => (c.id === item.card_id ? { ...c, name: item.name } : c)));
       await supabase.from('cards').update({ name: item.name }).eq('id', item.card_id);
@@ -871,6 +978,7 @@ export default function App() {
         type: item.type,
         closing_day: item.closing_day,
         due_day: item.due_day,
+        category: item.category,
       })
       .eq('id', item.id);
 
@@ -891,6 +999,7 @@ export default function App() {
           type: item.type,
           closing_day: item.closing_day,
           due_day: item.due_day,
+          category: item.category,
         })
         .eq('recurring_group_id', item.recurring_group_id)
         .gt('month_id', currentMonthId);
@@ -1141,6 +1250,7 @@ export default function App() {
     total: number,
     purchaseDate: string | null,
     installments = 1,
+    category: string | null = suggestCategory(name),
   ) => {
     const firstMonth = getPurchaseInvoiceMonth(cardItem, purchaseDate);
     const groupId = installments > 1 ? Math.random().toString(36).substr(2, 9) : null;
@@ -1160,6 +1270,7 @@ export default function App() {
         name: groupId ? `${name} (${i + 1}/${installments})` : name,
         value: values[i],
         purchase_date: purchaseDate,
+        category,
         installment_group_id: groupId,
         installment_number: groupId ? i + 1 : null,
         installment_total: groupId ? installments : null,
@@ -1198,11 +1309,13 @@ export default function App() {
       name: desc,
       pagamento: expense.period === 'vale' ? 0 : expense.amount,
       vale: expense.period === 'vale' ? expense.amount : 0,
+      category: suggestCategory(desc),
     };
     setItems(prev => [...prev, newItem]);
     await supabase.from('items').insert(newItem);
     // Don't set to editing mode if they quickly added it, or maybe do so they can categorize
     setEditingItems(prev => ({ ...prev, [newItem.id]: true }));
+    fetchYearData();
   };
 
   const removeItem = async (id: string) => {
@@ -1372,19 +1485,20 @@ export default function App() {
     }));
   };
 
-  const saveCardExpense = async (cardItem: ItemRecord, exp: CardExpense) => {
+  const saveCardExpense = async (cardItem: ItemRecord, original: CardExpense) => {
+    const exp = original.category ? original : { ...original, category: suggestCategory(original.name) };
     const installments = Math.min(Number(exp.installments_input) || 1, 48);
 
     if (installments > 1 && !exp.installment_group_id && !exp.is_recurring) {
       await supabase.from('card_expenses').delete().eq('id', exp.id);
       setEditingCardExpenses(prev => ({ ...prev, [exp.id]: false }));
-      await addCardPurchase(cardItem, exp.name, Number(exp.value) || 0, exp.purchase_date || null, installments);
+      await addCardPurchase(cardItem, exp.name, Number(exp.value) || 0, exp.purchase_date || null, installments, exp.category);
       return;
     }
 
     await supabase
       .from('card_expenses')
-      .update({ name: exp.name, value: Number(exp.value) || 0, purchase_date: exp.purchase_date || null })
+      .update({ name: exp.name, value: Number(exp.value) || 0, purchase_date: exp.purchase_date || null, category: exp.category })
       .eq('id', exp.id);
 
     const invoiceMonth = getPurchaseInvoiceMonth(cardItem, exp.purchase_date);
@@ -1437,7 +1551,7 @@ export default function App() {
           if (futureExpIds.length > 0) {
             await supabase
               .from('card_expenses')
-              .update({ name: exp.name, value: Number(exp.value) || 0 })
+              .update({ name: exp.name, value: Number(exp.value) || 0, category: exp.category })
               .in('id', futureExpIds);
           }
         }
@@ -1651,6 +1765,7 @@ export default function App() {
                 card_item_id: targetCardId,
                 name: exp.name,
                 value: exp.value,
+                category: exp.category,
                 is_recurring: !isLastMonth,
                 recurring_group_id: groupId,
               });
@@ -1699,6 +1814,7 @@ export default function App() {
               pagamento: rec.pagamento,
               vale: rec.vale,
               card_id: rec.card_id,
+              category: rec.category,
               closing_day: rec.closing_day,
               due_day: rec.due_day,
               is_recurring: !isLastMonth,
@@ -1811,62 +1927,30 @@ export default function App() {
 
   const incomeUsed = totals.totalIncome > 0 ? Math.round((totals.totalExpenses / totals.totalIncome) * 100) : 0;
 
+  const allCategories = useMemo(
+    () => [...DEFAULT_CATEGORIES.filter(c => c.id !== OTHER_CATEGORY.id), ...customCategories, OTHER_CATEGORY],
+    [customCategories],
+  );
+
   const pieChartData = useMemo(() => {
-    const sourceItems = yearItems.length > 0 ? yearItems : items;
-    const expenses = sourceItems.filter(
-      i => i.type.startsWith('expense_') || i.type.startsWith('card_'),
-    );
+    const sourceItems = (yearItems.length > 0 ? yearItems : items) as (ItemRecord & { month_id?: string })[];
+    const isInMode = (monthId: string) =>
+      expensePieMode === 'month' ? monthId === currentMonthId : expensePieMode === 'ytd' ? monthId <= currentMonthId : true;
 
-    const grouped: Record<
-      string,
-      { name: string; monthVal: number; ytdVal: number; yearVal: number }
-    > = {};
-
-    expenses.forEach(curr => {
-      const name = curr.name?.trim() || 'Sem nome';
-      const base = (Number(curr.pagamento) || 0) + (Number(curr.vale) || 0);
-      const cardExps = curr.type.startsWith('card_')
-        ? (yearCardExpenses[curr.id] || cardExpenses[curr.id] || []).reduce(
-            (s, e) => s + Number(e.value || 0),
-            0,
-          )
-        : 0;
-      const itemTotal = base + cardExps;
-
-      if (itemTotal > 0) {
-        if (!grouped[name]) {
-          grouped[name] = { name, monthVal: 0, ytdVal: 0, yearVal: 0 };
-        }
-
-        grouped[name].yearVal += itemTotal;
-
-        const itemMonthId = (curr as any).month_id || currentMonthId;
-        if (itemMonthId === currentMonthId) {
-          grouped[name].monthVal += itemTotal;
-        }
-
-        if (itemMonthId <= currentMonthId) {
-          grouped[name].ytdVal += itemTotal;
-        }
-      }
-    });
-
-    return Object.values(grouped)
+    return groupByCategory(
+      sourceItems,
+      id => yearCardExpenses[id] || cardExpenses[id] || [],
+      allCategories,
+      currentMonthId,
+    )
       .map(g => ({
-        name: g.name,
-        value:
-          expensePieMode === 'month'
-            ? g.monthVal
-            : expensePieMode === 'ytd'
-            ? g.ytdVal
-            : g.yearVal,
-        monthValue: g.monthVal,
-        ytdValue: g.ytdVal,
-        yearValue: g.yearVal,
+        ...g,
+        value: expensePieMode === 'month' ? g.monthValue : expensePieMode === 'ytd' ? g.ytdValue : g.yearValue,
+        visibleEntries: g.entries.filter(e => isInMode(e.monthId)).sort((a, b) => b.value - a.value),
       }))
       .filter(g => g.value > 0)
       .sort((a, b) => b.value - a.value);
-  }, [items, cardExpenses, yearItems, yearCardExpenses, currentMonthId, expensePieMode]);
+  }, [items, cardExpenses, yearItems, yearCardExpenses, currentMonthId, expensePieMode, allCategories]);
 
   if (authLoading) {
     return (
@@ -2336,7 +2420,12 @@ export default function App() {
                                     stroke="none"
                                   >
                                     {pieChartData.map((_entry, index) => (
-                                      <Cell key={`cell-${index}`} fill={PIE_COLORS[index % PIE_COLORS.length]} />
+                                      <Cell
+                                        key={`cell-${index}`}
+                                        fill={PIE_COLORS[index % PIE_COLORS.length]}
+                                        className="cursor-pointer outline-none"
+                                        onClick={() => setSelectedCategoryId(id => (id === _entry.id ? null : _entry.id))}
+                                      />
                                     ))}
                                   </Pie>
                                   <Tooltip
@@ -2368,24 +2457,51 @@ export default function App() {
                               </ResponsiveContainer>
                             </div>
 
-                            <div className="mt-3 space-y-1.5 max-h-48 overflow-y-auto custom-scrollbar pr-1 divide-y divide-ink/5">
-                              {pieChartData.map((item, idx) => (
-                                <div key={item.name} className="pt-1.5 first:pt-0 flex items-center justify-between text-xs">
-                                  <div className="flex items-center gap-2 overflow-hidden mr-2">
-                                    <span
-                                      className="w-2.5 h-2.5 rounded-full shrink-0"
-                                      style={{ backgroundColor: PIE_COLORS[idx % PIE_COLORS.length] }}
-                                    />
-                                    <span className="font-medium text-ink/90 truncate">{item.name}</span>
+                            <div className="mt-3 space-y-1 max-h-96 overflow-y-auto custom-scrollbar pr-1">
+                              {pieChartData.map((item, idx) => {
+                                const isSelected = selectedCategoryId === item.id;
+
+                                return (
+                                  <div key={item.id} className={`rounded-2xl transition-all ${isSelected ? 'bg-soft' : ''}`}>
+                                    <button
+                                      onClick={() => setSelectedCategoryId(isSelected ? null : item.id)}
+                                      aria-expanded={isSelected}
+                                      className="w-full flex items-center gap-2.5 p-2 text-left text-xs rounded-2xl hover:bg-soft transition-all"
+                                    >
+                                      <span
+                                        className="w-8 h-8 rounded-xl flex items-center justify-center text-white shrink-0"
+                                        style={{ backgroundColor: PIE_COLORS[idx % PIE_COLORS.length] }}
+                                      >
+                                        <CategoryIcon icon={item.icon} className="w-4 h-4" />
+                                      </span>
+                                      <span className="flex-1 min-w-0">
+                                        <span className="font-semibold text-ink block truncate">{item.name}</span>
+                                        <span className="text-[10px] text-ink/65 block">
+                                          {item.visibleEntries.length} {item.visibleEntries.length === 1 ? 'lançamento' : 'lançamentos'}
+                                        </span>
+                                      </span>
+                                      <span className="text-ink font-bold tabular-nums shrink-0">{formatCurrency(item.value)}</span>
+                                      <ChevronRight className={`w-3.5 h-3.5 text-ink/50 shrink-0 transition-transform ${isSelected ? 'rotate-90' : ''}`} />
+                                    </button>
+
+                                    {isSelected && (
+                                      <div className="px-3 pb-2 divide-y divide-ink/5">
+                                        {item.visibleEntries.map(entry => (
+                                          <div key={entry.id} className="flex items-center justify-between gap-3 py-1.5 text-[11px]">
+                                            <span className="min-w-0">
+                                              <span className="text-ink/90 font-medium block truncate">{entry.name}</span>
+                                              <span className="text-[10px] text-ink/65 block truncate">
+                                                {[expensePieMode !== 'month' ? formatMonthId(entry.monthId) : null, entry.cardName && !entry.name.endsWith('(valor base)') ? entry.cardName : null].filter(Boolean).join(' · ')}
+                                              </span>
+                                            </span>
+                                            <span className="text-ink font-semibold tabular-nums shrink-0">{formatCurrency(entry.value)}</span>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    )}
                                   </div>
-                                  <div className="text-right tabular-nums shrink-0">
-                                    <span className="text-ink font-bold block">{formatCurrency(item.value)}</span>
-                                    <span className="text-[9px] text-ink/65 block">
-                                      Mês: {formatCurrency(item.monthValue)} | Anual: {formatCurrency(item.yearValue)}
-                                    </span>
-                                  </div>
-                                </div>
-                              ))}
+                                );
+                              })}
                             </div>
                           </div>
                         ) : (
@@ -2493,7 +2609,7 @@ export default function App() {
                                     }`}
                                     title={item.is_paid ? 'Pago' : 'Marcar como pago'}
                                   >
-                                    {item.is_paid ? <Check className="w-5 h-5 stroke-[3]" /> : <Receipt className="w-5 h-5" />}
+                                    {item.is_paid ? <Check className="w-5 h-5 stroke-[3]" /> : <CategoryIcon icon={findCategory(allCategories, item.category).icon} className="w-5 h-5" />}
                                   </button>
 
                                   <div className="flex-1 min-w-[6rem]">
@@ -2507,7 +2623,16 @@ export default function App() {
                                     }`}
                                     placeholder="Descrição"
                                   />
-<span className="block text-[11px] text-brand-blue-dark truncate">{[item.is_paid ? 'Pago' : 'A pagar', item.is_recurring ? 'Recorrente' : null].filter(Boolean).join(' · ')}</span>
+<div className="flex flex-wrap items-center gap-x-1.5 min-w-0 mt-0.5">
+                                      <CategorySelect
+                                        value={item.category}
+                                        categories={allCategories}
+                                        label={item.name}
+                                        onChange={category => changeItemCategory(item, category)}
+                                        onCreate={() => openCategoryManager(category => changeItemCategory(item, category))}
+                                      />
+                                      <span className="text-[11px] text-brand-blue-dark truncate">{[item.is_paid ? 'Pago' : 'A pagar', item.is_recurring ? 'Recorrente' : null].filter(Boolean).join(' · ')}</span>
+                                    </div>
 </div>
                                   <span className="text-ink/65 text-[10px]">R$</span>
                                   <input
@@ -2597,7 +2722,7 @@ export default function App() {
                                     }`}
                                     title={item.is_paid ? 'Pago' : 'Marcar como pago'}
                                   >
-                                    {item.is_paid ? <Check className="w-5 h-5 stroke-[3]" /> : <Receipt className="w-5 h-5" />}
+                                    {item.is_paid ? <Check className="w-5 h-5 stroke-[3]" /> : <CategoryIcon icon={findCategory(allCategories, item.category).icon} className="w-5 h-5" />}
                                   </button>
 
                                   <div className="flex-1 min-w-[6rem]">
@@ -2611,7 +2736,16 @@ export default function App() {
                                     }`}
                                     placeholder="Descrição"
                                   />
-<span className="block text-[11px] text-brand-blue-dark truncate">{[item.is_paid ? 'Pago' : 'A pagar', item.is_recurring ? 'Recorrente' : null].filter(Boolean).join(' · ')}</span>
+<div className="flex flex-wrap items-center gap-x-1.5 min-w-0 mt-0.5">
+                                      <CategorySelect
+                                        value={item.category}
+                                        categories={allCategories}
+                                        label={item.name}
+                                        onChange={category => changeItemCategory(item, category)}
+                                        onCreate={() => openCategoryManager(category => changeItemCategory(item, category))}
+                                      />
+                                      <span className="text-[11px] text-brand-blue-dark truncate">{[item.is_paid ? 'Pago' : 'A pagar', item.is_recurring ? 'Recorrente' : null].filter(Boolean).join(' · ')}</span>
+                                    </div>
 </div>
                                   <span className="text-ink/65 text-[10px]">R$</span>
                                   <input
@@ -2805,19 +2939,28 @@ export default function App() {
                                               }`}
                                               title={exp.is_paid ? 'Pago' : 'Marcar como pago'}
                                             >
-                                              {exp.is_paid ? <Check className="w-4 h-4 stroke-[3]" /> : <Receipt className="w-4 h-4" />}
+                                              {exp.is_paid ? <Check className="w-4 h-4 stroke-[3]" /> : <CategoryIcon icon={findCategory(allCategories, exp.category).icon} className="w-4 h-4" />}
                                             </button>
 
-                                            <input
+                                            <div className="flex-1 min-w-[6rem]">
+<input
                                               type="text"
                                               value={exp.name}
                                               onChange={(e) => updateCardExpenseLocal(item.id, exp.id, 'name', e.target.value)}
                                               readOnly={!isExpEdit}
-                                              className={`flex-1 bg-transparent text-xs outline-none transition-colors ${
+                                              className={`w-full bg-transparent text-xs outline-none transition-colors ${
                                                 exp.is_paid ? 'text-primary-dark font-semibold line-through decoration-primary-dark/50' : 'text-ink/80'
                                               }`}
                                               placeholder="Compra"
                                             />
+                                              <CategorySelect
+                                                value={exp.category}
+                                                categories={allCategories}
+                                                label={exp.name}
+                                                onChange={category => changeExpenseCategory(item.id, exp, category)}
+                                                onCreate={() => openCategoryManager(category => changeExpenseCategory(item.id, exp, category))}
+                                              />
+                                            </div>
                                             <span className="text-ink/50 text-[10px]">R$</span>
                                             <input
                                               type="number"
@@ -2930,6 +3073,20 @@ export default function App() {
           <div className="p-4 lg:p-8 pb-24 lg:pb-8">
             <div className="max-w-2xl mx-auto space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
               
+              <button
+                onClick={() => openCategoryManager()}
+                className="w-full flex items-center gap-3 bg-white rounded-3xl shadow-card p-4 text-left hover:bg-soft transition-all"
+              >
+                <span className="w-10 h-10 rounded-2xl bg-sky-tile text-ink flex items-center justify-center shrink-0">
+                  <CategoryIcon icon="tag" className="w-5 h-5" />
+                </span>
+                <span className="flex-1 min-w-0">
+                  <span className="block text-sm font-bold text-ink">Categorias</span>
+                  <span className="block text-xs text-ink/70">Crie e exclua suas categorias</span>
+                </span>
+                <ChevronRight className="w-4 h-4 text-ink/50 shrink-0" />
+              </button>
+
               {/* PWA App Installation Section */}
               <div className="flex items-center gap-3 mb-2">
                 <div className="p-2.5 bg-primary/10 border border-primary/20 rounded-xl">
@@ -3411,6 +3568,17 @@ export default function App() {
           )}
         </div>
       )}
+
+      <CategoryManagerModal
+        isOpen={isCategoryModalOpen}
+        onClose={() => {
+          setCategoryModalOpen(false);
+          setCategoryTarget(null);
+        }}
+        customCategories={customCategories}
+        onCreate={createCategory}
+        onDelete={deleteCategory}
+      />
 
       <CardManagementModal
         isOpen={isCardModalOpen}

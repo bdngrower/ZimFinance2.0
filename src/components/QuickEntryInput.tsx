@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Mic, MicOff, Send, CreditCard, Calendar, CheckCircle, DollarSign, Sparkles } from 'lucide-react';
 import { parseExpenseText, ParsedExpense } from '../lib/nlpParser';
+import { DEFAULT_CATEGORIES, suggestCategory } from '../lib/categories';
 
 interface QuickEntryInputProps {
   onAddEntry: (expense: ParsedExpense) => Promise<void> | void;
@@ -105,6 +106,7 @@ export function QuickEntryInput({ onAddEntry, cards }: QuickEntryInputProps) {
 
   const parsed = text ? parseExpenseText(text, cards) : null;
   const detectedCard = parsed?.targetCardId ? cards.find(c => c.id === parsed.targetCardId) : null;
+  const detectedCategory = DEFAULT_CATEGORIES.find(c => c.id === suggestCategory(parsed?.description));
 
   return (
     <div className="relative mb-4">
@@ -211,6 +213,11 @@ export function QuickEntryInput({ onAddEntry, cards }: QuickEntryInputProps) {
                 <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2.5 py-1 rounded-lg bg-brand-blue/15 text-brand-blue border border-brand-blue/20">
                   <CreditCard className="w-3 h-3" />
                   {detectedCard.name}
+                </span>
+              )}
+              {detectedCategory && (
+                <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2.5 py-1 rounded-lg bg-soft text-ink">
+                  {detectedCategory.name}
                 </span>
               )}
               {detectedCard && parsed.installments && (
