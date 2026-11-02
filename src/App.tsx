@@ -34,7 +34,10 @@ import {
 } from 'lucide-react';
 import { supabase } from './lib/supabaseClient';
 import { QuickEntryInput } from './components/QuickEntryInput';
-import { CardManagementModal } from './components/CardManagementModal';
+import { CardFormValues, CardManagementModal } from './components/CardManagementModal';
+import { AccountingSource, addMonths, Card, getInvoiceMonth, isCardActiveInMonth, moveBaseAmount, splitInstallments } from './lib/cards';
+import { ParsedExpense } from './lib/nlpParser';
+import { SAVE_ERROR_EVENT } from './lib/saveErrors';
 import {
   BarChart,
   Bar,
@@ -65,16 +68,16 @@ const MONTH_NAMES = [
 ];
 
 const PIE_COLORS = [
-  '#10b981',
-  '#3b82f6',
-  '#f43f5e',
-  '#8b5cf6',
-  '#f59e0b',
-  '#64748b',
-  '#ec4899',
-  '#14b8a6',
-  '#f97316',
-  '#6366f1',
+  '#00D09E',
+  '#0068FF',
+  '#6DB6FE',
+  '#093030',
+  '#F59E0B',
+  '#8B5CF6',
+  '#EC4899',
+  '#14B8A6',
+  '#F97316',
+  '#64748B',
 ];
 
 const formatCurrency = (value: number) => {
@@ -99,8 +102,9 @@ type ItemRecord = {
   recurring_group_id?: string;
   linked_share_id?: string;
   is_paid?: boolean;
-  closing_day?: number;
-  due_day?: number;
+  closing_day?: number | null;
+  due_day?: number | null;
+  card_id?: string | null;
 };
 
 type CardExpense = {
@@ -111,7 +115,12 @@ type CardExpense = {
   is_recurring?: boolean;
   recurring_group_id?: string;
   is_paid?: boolean;
-  purchase_date?: string;
+  purchase_date?: string | null;
+  installment_group_id?: string | null;
+  installment_number?: number | null;
+  installment_total?: number | null;
+  // Campo do formulário: quantidade de parcelas ainda não gravada
+  installments_input?: string | number;
 };
 
 type UserProfile = {
@@ -184,6 +193,10 @@ export default function App() {
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [activeView, setActiveView] = useState<'dashboard' | 'lancamentos' | 'settings'>('dashboard');
   const [isCardModalOpen, setCardModalOpen] = useState(false);
+  const [cards, setCards] = useState<Card[]>([]);
+  const [saveFailed, setSaveFailed] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [lancamentosTab, setLancamentosTab] = useState<'pagamento' | 'vale' | 'cartoes'>('pagamento');
   const [notifications, setNotifications] = useState<ExpenseShare[]>([]);
   const [showNotifications, setShowNotifications] = useState(false);
   const [sentShares, setSentShares] = useState<ExpenseShare[]>([]);
@@ -254,6 +267,18 @@ export default function App() {
       alert("Para instalar o ZimFinance no seu dispositivo, acesse pelo navegador do seu celular e selecione 'Adicionar à Tela de Início' no menu do navegador.");
     }
   };
+
+  useEffect(() => {
+    const handleSaveError = () => setSaveFailed(true);
+    window.addEventListener(SAVE_ERROR_EVENT, handleSaveError);
+    return () => window.removeEventListener(SAVE_ERROR_EVENT, handleSaveError);
+  }, []);
+
+  useEffect(() => {
+    if (!notice) return;
+    const timer = setTimeout(() => setNotice(null), 6000);
+    return () => clearTimeout(timer);
+  }, [notice]);
 
   useEffect(() => {
     if (session?.user?.id) {
@@ -512,6 +537,8 @@ export default function App() {
       .select('*')
       .in('month_id', monthIds);
 
+    let yearExpenses: { [cardId: string]: CardExpense[] } = {};
+
     if (allItems) {
       setYearItems(allItems as ItemRecord[]);
       const cardIds = allItems.filter(i => i.type.startsWith('card_')).map(i => i.id);
@@ -527,6 +554,7 @@ export default function App() {
             if (!expMap[e.card_item_id]) expMap[e.card_item_id] = [];
             expMap[e.card_item_id].push(e as CardExpense);
           });
+          yearExpenses = expMap;
           setYearCardExpenses(expMap);
         }
       } else {
@@ -550,7 +578,11 @@ export default function App() {
         : 0;
 
       const desp = mItems.reduce(
-        (acc, curr) => acc + (Number(curr.pagamento) || 0) + (Number(curr.vale) || 0),
+        (acc, curr) =>
+          acc +
+          (Number(curr.pagamento) || 0) +
+          (Number(curr.vale) || 0) +
+          (yearExpenses[curr.id] || []).reduce((sum, e) => sum + (Number(e.value) || 0), 0),
         0,
       );
 
@@ -567,6 +599,155 @@ export default function App() {
 
     setYearData(chartData);
     setAnnualTotals({ income: totalInc, expense: totalExp, balance: totalInc - totalExp });
+  };
+
+  // Copia os recorrentes do último mês existente; cartões cadastrados são tratados em syncCardsIntoMonth
+  const copyRecurringItems = async () => {
+    const { data: previousMonth } = await supabase
+      .from('months')
+      .select('id')
+      .lt('id', currentMonthId)
+      .order('id', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (previousMonth) {
+      const { data: recurringItems } = await supabase
+        .from('items')
+        .select('*')
+        .eq('month_id', previousMonth.id)
+        .eq('is_recurring', true)
+        .is('card_id', null);
+
+      const { data: existingItems } = await supabase
+        .from('items')
+        .select('recurring_group_id')
+        .eq('month_id', currentMonthId);
+      const existingGroups = new Set((existingItems || []).map(i => i.recurring_group_id).filter(Boolean));
+
+      for (const { created_at, ...item } of recurringItems || []) {
+        if (item.recurring_group_id && existingGroups.has(item.recurring_group_id)) continue;
+
+        const newItemId = Math.random().toString(36).substr(2, 9);
+
+        await supabase.from('items').insert({
+          ...item,
+          id: newItemId,
+          month_id: currentMonthId,
+          is_paid: false,
+        });
+
+        if (item.type.startsWith('card_')) {
+          await copyRecurringCardExpenses(item.id, newItemId);
+        }
+      }
+    }
+
+    await supabase.from('months').update({ recurring_synced: true }).eq('id', currentMonthId);
+  };
+
+  const copyRecurringCardExpenses = async (fromItemId: string, toItemId: string) => {
+    const { data: recurringCardExps } = await supabase
+      .from('card_expenses')
+      .select('*')
+      .eq('card_item_id', fromItemId)
+      .eq('is_recurring', true);
+
+    if (recurringCardExps && recurringCardExps.length > 0) {
+      await supabase.from('card_expenses').insert(
+        recurringCardExps.map(({ created_at, ...ce }) => ({
+          ...ce,
+          id: Math.random().toString(36).substr(2, 9),
+          card_item_id: toItemId,
+          is_paid: false,
+          purchase_date: null,
+        })),
+      );
+    }
+  };
+
+  // Garante que cada cartão ativo tenha sua linha no mês aberto
+  const syncCardsIntoMonth = async () => {
+    const { data: allCards, error } = await supabase
+      .from('cards')
+      .select('*')
+      .order('created_at', { ascending: true });
+
+    if (error || !allCards) return;
+    setCards(allCards as Card[]);
+
+    const activeCards = (allCards as Card[]).filter(card => isCardActiveInMonth(card, currentMonthId));
+    if (activeCards.length === 0) return;
+
+    const { data: existing } = await supabase
+      .from('items')
+      .select('card_id')
+      .eq('month_id', currentMonthId)
+      .not('card_id', 'is', null);
+    const existingCardIds = new Set((existing || []).map(i => i.card_id));
+
+    for (const card of activeCards) {
+      if (!existingCardIds.has(card.id)) {
+        await createCardInstance(card, currentMonthId);
+      }
+    }
+  };
+
+  const createCardInstance = async (card: Card, monthId: string): Promise<string | null> => {
+    const { data: previous } = await supabase
+      .from('items')
+      .select('*')
+      .eq('card_id', card.id)
+      .lt('month_id', monthId)
+      .order('month_id', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    // O valor base só se repete quando o usuário marcou o cartão como recorrente
+    const base = previous?.is_recurring ? Math.max(Number(previous.pagamento) || 0, Number(previous.vale) || 0) : 0;
+    const newItemId = Math.random().toString(36).substr(2, 9);
+
+    const { data: inserted, error } = await supabase
+      .from('items')
+      .upsert(
+        {
+          id: newItemId,
+          month_id: monthId,
+          card_id: card.id,
+          type: `card_${card.accounting_source}`,
+          name: card.name,
+          pagamento: card.accounting_source === 'pagamento' ? base : 0,
+          vale: card.accounting_source === 'vale' ? base : 0,
+          closing_day: card.closing_day,
+          due_day: card.due_day,
+          is_recurring: previous?.is_recurring ?? false,
+          recurring_group_id: previous?.recurring_group_id ?? null,
+        },
+        { onConflict: 'card_id,month_id', ignoreDuplicates: true },
+      )
+      .select('id');
+
+    if (error) {
+      console.error('Error creating card in month:', error);
+      return null;
+    }
+
+    // Sem linha retornada, outra aba já criou o cartão neste mês
+    if (!inserted || inserted.length === 0) {
+      const { data: current } = await supabase
+        .from('items')
+        .select('id')
+        .eq('card_id', card.id)
+        .eq('month_id', monthId)
+        .maybeSingle();
+      return current?.id ?? null;
+    }
+
+    if (previous) {
+      await copyRecurringCardExpenses(previous.id, newItemId);
+    }
+
+    return newItemId;
   };
 
   const fetchData = async () => {
@@ -592,56 +773,7 @@ export default function App() {
       monthData = newMonth;
 
       setIncome({ pagamento: 0, vale: 0, ferias: 0, decimoTerceiro: 0 });
-
-      let prevMonthIdx = currentMonthIndex - 1;
-      let prevYear = currentYear;
-
-      if (prevMonthIdx < 0) {
-        prevMonthIdx = 11;
-        prevYear -= 1;
-      }
-
-      const prevMonthId = `${prevYear}-${String(prevMonthIdx + 1).padStart(2, '0')}`;
-
-      const { data: recurringItems } = await supabase
-        .from('items')
-        .select('*')
-        .eq('month_id', prevMonthId)
-        .eq('is_recurring', true);
-
-      if (recurringItems && recurringItems.length > 0) {
-        for (const item of recurringItems) {
-          const newItemId = Math.random().toString(36).substr(2, 9);
-
-          await supabase
-            .from('items')
-            .insert({
-              ...item,
-              id: newItemId,
-              month_id: currentMonthId,
-            })
-            .select()
-            .single();
-
-          if (item.type.startsWith('card_')) {
-            const { data: recurringCardExps } = await supabase
-              .from('card_expenses')
-              .select('*')
-              .eq('card_item_id', item.id)
-              .eq('is_recurring', true);
-
-            if (recurringCardExps && recurringCardExps.length > 0) {
-              await supabase.from('card_expenses').insert(
-                recurringCardExps.map(ce => ({
-                  ...ce,
-                  id: Math.random().toString(36).substr(2, 9),
-                  card_item_id: newItemId,
-                })),
-              );
-            }
-          }
-        }
-      }
+      await copyRecurringItems();
     } else if (monthData) {
       setIncome({
         pagamento: monthData.income_pagamento || 0,
@@ -649,7 +781,13 @@ export default function App() {
         ferias: monthData.income_ferias || 0,
         decimoTerceiro: monthData.income_decimo_terceiro || 0,
       });
+
+      if (monthData.recurring_synced === false) {
+        await copyRecurringItems();
+      }
     }
+
+    await syncCardsIntoMonth();
 
     const { data: currentItems } = await supabase
       .from('items')
@@ -707,6 +845,16 @@ export default function App() {
   };
 
   const saveItem = async (item: ItemRecord) => {
+    if (item.card_id) {
+      setCards(prev => prev.map(c => (c.id === item.card_id ? { ...c, name: item.name } : c)));
+      await supabase.from('cards').update({ name: item.name }).eq('id', item.card_id);
+      await supabase
+        .from('items')
+        .update({ name: item.name })
+        .eq('card_id', item.card_id)
+        .gt('month_id', currentMonthId);
+    }
+
     await supabase
       .from('items')
       .update({
@@ -745,7 +893,31 @@ export default function App() {
     fetchYearData();
   };
 
+  const changeCardSource = async (cardId: string, source: AccountingSource) => {
+    setCards(prev => prev.map(c => (c.id === cardId ? { ...c, accounting_source: source } : c)));
+    setItems(prev => prev.map(i => (i.card_id === cardId ? { ...i, ...moveBaseAmount(i, source) } : i)));
+
+    await supabase.from('cards').update({ accounting_source: source }).eq('id', cardId);
+
+    const { data: instances } = await supabase
+      .from('items')
+      .select('id, pagamento, vale')
+      .eq('card_id', cardId)
+      .gte('month_id', currentMonthId);
+
+    for (const instance of instances || []) {
+      await supabase.from('items').update(moveBaseAmount(instance, source)).eq('id', instance.id);
+    }
+
+    fetchYearData();
+  };
+
   const updateCardSource = async (item: ItemRecord, source: 'pagamento' | 'vale') => {
+    if (item.card_id) {
+      await changeCardSource(item.card_id, source);
+      return;
+    }
+
     const currentAmount = Math.max(Number(item.pagamento) || 0, Number(item.vale) || 0);
 
     const updated = {
@@ -799,6 +971,17 @@ export default function App() {
   };
 
   const ensureCardExistsInMonth = async (cardItem: ItemRecord, targetMonthId: string): Promise<string | null> => {
+    const card = cards.find(c => c.id === cardItem.card_id);
+    if (card) {
+      const { data: instance } = await supabase
+        .from('items')
+        .select('id')
+        .eq('card_id', card.id)
+        .eq('month_id', targetMonthId)
+        .maybeSingle();
+      return instance ? instance.id : createCardInstance(card, targetMonthId);
+    }
+
     let query = supabase
       .from('items')
       .select('id')
@@ -821,6 +1004,8 @@ export default function App() {
       name: cardItem.name,
       pagamento: cardItem.pagamento,
       vale: cardItem.vale,
+      closing_day: cardItem.closing_day,
+      due_day: cardItem.due_day,
       is_recurring: cardItem.is_recurring,
       recurring_group_id: cardItem.recurring_group_id,
     });
@@ -918,23 +1103,79 @@ export default function App() {
     setEditingItems(prev => ({ ...prev, [newItem.id]: true }));
   };
 
-  const handleQuickEntry = async (expense: any) => {
+  const getCardDays = (cardItem: ItemRecord) => {
+    const card = cards.find(c => c.id === cardItem.card_id);
+    return {
+      closingDay: card?.closing_day ?? cardItem.closing_day,
+      dueDay: card?.due_day ?? cardItem.due_day,
+    };
+  };
+
+  const getPurchaseInvoiceMonth = (cardItem: ItemRecord, purchaseDate?: string | null) => {
+    const { closingDay, dueDay } = getCardDays(cardItem);
+    return purchaseDate && closingDay && dueDay
+      ? getInvoiceMonth(purchaseDate, closingDay, dueDay)
+      : currentMonthId;
+  };
+
+  const formatMonthId = (monthId: string) => {
+    const [year, month] = monthId.split('-');
+    return `${MONTH_NAMES[Number(month) - 1]}/${year}`;
+  };
+
+  // Grava a compra na fatura certa, dividindo em parcelas pelos meses seguintes
+  const addCardPurchase = async (
+    cardItem: ItemRecord,
+    name: string,
+    total: number,
+    purchaseDate: string | null,
+    installments = 1,
+  ) => {
+    const firstMonth = getPurchaseInvoiceMonth(cardItem, purchaseDate);
+    const groupId = installments > 1 ? Math.random().toString(36).substr(2, 9) : null;
+    const values = splitInstallments(total, installments);
+
+    for (let i = 0; i < installments; i++) {
+      const targetMonthId = addMonths(firstMonth, i);
+      await ensureMonthExists(targetMonthId);
+      const targetCardId = targetMonthId === currentMonthId
+        ? cardItem.id
+        : await ensureCardExistsInMonth(cardItem, targetMonthId);
+      if (!targetCardId) continue;
+
+      await supabase.from('card_expenses').insert({
+        id: Math.random().toString(36).substr(2, 9),
+        card_item_id: targetCardId,
+        name: groupId ? `${name} (${i + 1}/${installments})` : name,
+        value: values[i],
+        purchase_date: purchaseDate,
+        installment_group_id: groupId,
+        installment_number: groupId ? i + 1 : null,
+        installment_total: groupId ? installments : null,
+      });
+    }
+
+    setNotice(
+      installments > 1
+        ? `${installments} parcelas lançadas a partir da fatura de ${formatMonthId(firstMonth)}.`
+        : firstMonth === currentMonthId
+        ? null
+        : `Compra lançada na fatura de ${formatMonthId(firstMonth)}.`,
+    );
+    setExpandedCards(prev => ({ ...prev, [cardItem.id]: true }));
+    await fetchData();
+    fetchYearData();
+  };
+
+  const handleQuickEntry = async (expense: ParsedExpense) => {
     if (!expense.amount) return;
     const desc = expense.description || 'Despesa rápida';
 
-    if (expense.targetCardId) {
-      const newExp = {
-        id: Math.random().toString(36).substr(2, 9),
-        card_item_id: expense.targetCardId,
-        name: desc,
-        value: expense.amount,
-      };
-      setCardExpenses(prev => ({
-        ...prev,
-        [expense.targetCardId]: [...(prev[expense.targetCardId] || []), newExp as any],
-      }));
-      await supabase.from('card_expenses').insert(newExp);
-      setEditingCardExpenses(prev => ({ ...prev, [newExp.id]: true }));
+    const cardItem = items.find(i => i.id === expense.targetCardId);
+    if (cardItem) {
+      const today = new Date();
+      const purchaseDate = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+      await addCardPurchase(cardItem, desc, expense.amount, purchaseDate, Math.min(expense.installments ?? 1, 48));
       return;
     }
 
@@ -956,6 +1197,11 @@ export default function App() {
   const removeItem = async (id: string) => {
     const item = items.find(i => i.id === id);
     if (!item) return;
+
+    if (item.card_id) {
+      await handleDeleteCard(item.card_id);
+      return;
+    }
 
     let deleteFuture = false;
 
@@ -1000,8 +1246,13 @@ export default function App() {
       card_item_id: cardItem.id,
       name: '',
       value: 0,
+      // Em outros meses a data ficaria enganosa e moveria a compra para fora da tela
+      purchase_date: currentYear === realCurrentYear && currentMonthIndex === realCurrentMonth
+        ? new Date().toLocaleDateString('en-CA')
+        : null,
     };
 
+    setExpandedCards(prev => ({ ...prev, [cardItem.id]: true }));
     setCardExpenses(prev => ({
       ...prev,
       [cardItem.id]: [...(prev[cardItem.id] || []), newExp],
@@ -1012,32 +1263,88 @@ export default function App() {
   };
 
   const handleModalAddCardExpense = (cardId: string) => {
-    const card = items.find(i => i.id === cardId);
+    const card = items.find(i => i.card_id === cardId);
     if (card) {
       addCardExpense(card);
     }
   };
 
-  const handleAddCard = async (name: string, closingDay: number, dueDay: number) => {
-    const type = dueDay <= 5 ? 'card_pagamento' : 'card_vale';
+  const handleAddCard = async ({ name, closingDay, dueDay, source }: CardFormValues) => {
+    const card: Card = {
+      id: Math.random().toString(36).substr(2, 9),
+      name,
+      closing_day: closingDay,
+      due_day: dueDay,
+      accounting_source: source,
+      start_month: currentMonthId,
+    };
     const newItem = {
       id: Math.random().toString(36).substr(2, 9),
       month_id: currentMonthId,
-      type,
+      card_id: card.id,
+      type: `card_${source}`,
       name,
       pagamento: 0,
       vale: 0,
       closing_day: closingDay,
-      due_day: dueDay
+      due_day: dueDay,
     };
+    setCards(prev => [...prev, card]);
     setItems(prev => [...prev, newItem]);
+    await supabase.from('cards').insert(card);
     await supabase.from('items').insert(newItem);
   };
 
-  const handleUpdateCard = async (id: string, name: string, closingDay: number, dueDay: number) => {
-    const type = dueDay <= 5 ? 'card_pagamento' : 'card_vale';
-    setItems(prev => prev.map(item => item.id === id ? { ...item, name, closing_day: closingDay, due_day: dueDay, type } : item));
-    await supabase.from('items').update({ name, closing_day: closingDay, due_day: dueDay, type }).eq('id', id);
+  const handleUpdateCard = async (id: string, { name, closingDay, dueDay, source }: CardFormValues) => {
+    const previous = cards.find(c => c.id === id);
+    const changes = { name, closing_day: closingDay, due_day: dueDay };
+
+    setCards(prev => prev.map(c => (c.id === id ? { ...c, ...changes } : c)));
+    setItems(prev => prev.map(i => (i.card_id === id ? { ...i, ...changes } : i)));
+
+    await supabase.from('cards').update(changes).eq('id', id);
+    await supabase.from('items').update(changes).eq('card_id', id).gte('month_id', currentMonthId);
+
+    if (previous && previous.accounting_source !== source) {
+      await changeCardSource(id, source);
+    }
+  };
+
+  // Encerra o cartão no mês anterior: o histórico fica, e ele não volta a ser criado
+  const handleDeleteCard = async (id: string) => {
+    const card = cards.find(c => c.id === id);
+    if (!card) return;
+
+    const confirmed = window.confirm(
+      `Excluir o cartão ${card.name} e suas compras a partir de ${formatMonthId(currentMonthId)}?\n\nOs meses anteriores não serão alterados.`,
+    );
+    if (!confirmed) return;
+
+    const endMonth = addMonths(currentMonthId, -1);
+    setCards(prev => prev.map(c => (c.id === id ? { ...c, end_month: endMonth } : c)));
+    setItems(prev => prev.filter(i => i.card_id !== id));
+
+    const { data: instances } = await supabase
+      .from('items')
+      .select('id')
+      .eq('card_id', id)
+      .gte('month_id', currentMonthId);
+    const instanceIds = (instances || []).map(i => i.id);
+
+    if (instanceIds.length > 0) {
+      const { data: expenses } = await supabase
+        .from('card_expenses')
+        .select('id')
+        .in('card_item_id', instanceIds);
+      const expenseIds = (expenses || []).map(e => e.id);
+
+      await supabase.from('expense_shares').delete().in('source_item_id', [...instanceIds, ...expenseIds]);
+      await supabase.from('card_expenses').delete().in('card_item_id', instanceIds);
+      await supabase.from('items').delete().in('id', instanceIds);
+    }
+
+    await supabase.from('cards').update({ end_month: endMonth }).eq('id', id);
+    fetchYearData();
   };
 
   const updateCardExpenseLocal = (
@@ -1055,10 +1362,37 @@ export default function App() {
   };
 
   const saveCardExpense = async (cardItem: ItemRecord, exp: CardExpense) => {
+    const installments = Math.min(Number(exp.installments_input) || 1, 48);
+
+    if (installments > 1 && !exp.installment_group_id && !exp.is_recurring) {
+      await supabase.from('card_expenses').delete().eq('id', exp.id);
+      setEditingCardExpenses(prev => ({ ...prev, [exp.id]: false }));
+      await addCardPurchase(cardItem, exp.name, Number(exp.value) || 0, exp.purchase_date || null, installments);
+      return;
+    }
+
     await supabase
       .from('card_expenses')
-      .update({ name: exp.name, value: Number(exp.value) || 0, purchase_date: exp.purchase_date })
+      .update({ name: exp.name, value: Number(exp.value) || 0, purchase_date: exp.purchase_date || null })
       .eq('id', exp.id);
+
+    const invoiceMonth = getPurchaseInvoiceMonth(cardItem, exp.purchase_date);
+    if (invoiceMonth !== currentMonthId && !exp.is_recurring && !exp.installment_group_id) {
+      await ensureMonthExists(invoiceMonth);
+      const targetCardId = await ensureCardExistsInMonth(cardItem, invoiceMonth);
+
+      if (targetCardId) {
+        await supabase.from('card_expenses').update({ card_item_id: targetCardId }).eq('id', exp.id);
+        setEditingCardExpenses(prev => ({ ...prev, [exp.id]: false }));
+        setCardExpenses(prev => ({
+          ...prev,
+          [cardItem.id]: (prev[cardItem.id] || []).filter(e => e.id !== exp.id),
+        }));
+        setNotice(`Compra lançada na fatura de ${formatMonthId(invoiceMonth)}.`);
+        fetchYearData();
+        return;
+      }
+    }
 
     let updateFuture = false;
     if (exp.is_recurring && exp.recurring_group_id) {
@@ -1112,6 +1446,23 @@ export default function App() {
     const expenses = cardExpenses[cardItem.id] || [];
     const exp = expenses.find(e => e.id === expId);
     if (!exp) return;
+
+    if (exp.installment_group_id && window.confirm(
+      'Excluir também as próximas parcelas desta compra?\n\n[OK] = Esta e as próximas\n[Cancelar] = Apenas esta',
+    )) {
+      const { data: laterParcels } = await supabase
+        .from('card_expenses')
+        .select('id')
+        .eq('installment_group_id', exp.installment_group_id)
+        .gte('installment_number', exp.installment_number ?? 1);
+      const parcelIds = (laterParcels || []).map(e => e.id);
+
+      setCardExpenses(prev => ({ ...prev, [cardItem.id]: expenses.filter(e => e.id !== expId) }));
+      await supabase.from('expense_shares').delete().in('source_item_id', parcelIds);
+      await supabase.from('card_expenses').delete().in('id', parcelIds);
+      fetchYearData();
+      return;
+    }
 
     let deleteFuture = false;
     if (exp.is_recurring && exp.recurring_group_id) {
@@ -1325,7 +1676,7 @@ export default function App() {
             .from('items')
             .select('id')
             .eq('month_id', targetMonthId)
-            .eq('recurring_group_id', groupId)
+            .eq(rec.card_id ? 'card_id' : 'recurring_group_id', rec.card_id || groupId)
             .maybeSingle();
 
           if (!existingItem) {
@@ -1336,6 +1687,9 @@ export default function App() {
               name: rec.name,
               pagamento: rec.pagamento,
               vale: rec.vale,
+              card_id: rec.card_id,
+              closing_day: rec.closing_day,
+              due_day: rec.due_day,
               is_recurring: !isLastMonth,
               recurring_group_id: groupId,
             });
@@ -1344,6 +1698,7 @@ export default function App() {
               .from('items')
               .update({
                 is_recurring: !isLastMonth,
+                recurring_group_id: groupId,
                 name: rec.name,
                 pagamento: rec.pagamento,
                 vale: rec.vale,
@@ -1422,6 +1777,29 @@ export default function App() {
     };
   }, [income, items, cardExpenses]);
 
+  // Parte das despesas do mês já marcada como paga
+  const paidShare = useMemo(() => {
+    let total = 0;
+    let paid = 0;
+
+    items.forEach(item => {
+      const base = (Number(item.pagamento) || 0) + (Number(item.vale) || 0);
+      const expenses = item.type.startsWith('card_') ? cardExpenses[item.id] || [] : [];
+      const expensesTotal = expenses.reduce((sum, e) => sum + (Number(e.value) || 0), 0);
+
+      total += base + expensesTotal;
+      if (item.is_paid) {
+        paid += base + expensesTotal;
+      } else {
+        paid += expenses.filter(e => e.is_paid).reduce((sum, e) => sum + (Number(e.value) || 0), 0);
+      }
+    });
+
+    return total > 0 ? Math.round((paid / total) * 100) : 0;
+  }, [items, cardExpenses]);
+
+  const incomeUsed = totals.totalIncome > 0 ? Math.round((totals.totalExpenses / totals.totalIncome) * 100) : 0;
+
   const pieChartData = useMemo(() => {
     const sourceItems = yearItems.length > 0 ? yearItems : items;
     const expenses = sourceItems.filter(
@@ -1481,53 +1859,52 @@ export default function App() {
 
   if (authLoading) {
     return (
-      <div className="min-h-screen bg-[#0f1115] flex items-center justify-center">
-        <Loader2 className="w-10 h-10 animate-spin text-emerald-500" />
+      <div className="min-h-screen bg-primary flex items-center justify-center">
+        <Loader2 className="w-10 h-10 animate-spin text-ink" />
       </div>
     );
   }
 
   if (!session) {
     return (
-      <div className="min-h-screen bg-[#0f1115] flex items-center justify-center p-4 relative overflow-hidden">
-        <div className="fixed top-[-10%] left-[-10%] w-[40%] h-[40%] rounded-full bg-emerald-600/20 blur-[120px] pointer-events-none" />
+      <div className="min-h-screen bg-primary flex items-center justify-center p-4 relative overflow-hidden">
 
-        <div className="bg-white/5 backdrop-blur-xl border border-white/10 p-8 rounded-3xl w-full max-w-md shadow-2xl relative z-10">
+        <div className="bg-mint p-8 rounded-[2.5rem] w-full max-w-md shadow-2xl relative z-10">
           <div className="flex flex-col items-center mb-8">
             <img src="/Logo.png" alt="ZimFinance" className="w-20 h-20 object-contain mb-4 drop-shadow-2xl" />
-            <h1 className="text-3xl font-extrabold text-white tracking-tight">ZimFinance</h1>
-            <p className="text-white/50 text-sm mt-2">Acesse seu controle financeiro</p>
+            <h1 className="text-3xl font-extrabold text-ink tracking-tight">ZimFinance</h1>
+            <p className="text-ink/70 text-sm mt-2">Acesse seu controle financeiro</p>
           </div>
 
           <form onSubmit={handleLogin} className="space-y-5">
             {authError && (
-              <div className="bg-rose-500/20 text-rose-400 p-3 rounded-xl text-sm text-center border border-rose-500/30">
+              <div className="bg-rose-500/20 text-rose-700 p-3 rounded-xl text-sm text-center border border-rose-500/30">
                 {authError}
               </div>
             )}
 
             <div>
-              <label className="block text-xs font-bold text-white/40 uppercase tracking-widest mb-2">
+              <label className="block text-xs font-bold text-ink/65 uppercase tracking-widest mb-2">
                 E-mail
               </label>
               <input
                 type="email"
                 value={email}
                 onChange={e => setEmail(e.target.value)}
-                className="w-full bg-black/20 border border-white/10 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 p-3 rounded-xl text-white outline-none transition-all"
+                className="w-full bg-soft border border-ink/10 focus:border-primary focus:ring-1 focus:ring-primary p-3 rounded-xl text-ink outline-none transition-all"
                 required
               />
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-white/40 uppercase tracking-widest mb-2">
+              <label className="block text-xs font-bold text-ink/65 uppercase tracking-widest mb-2">
                 Senha
               </label>
               <input
                 type="password"
                 value={password}
                 onChange={e => setPassword(e.target.value)}
-                className="w-full bg-black/20 border border-white/10 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 p-3 rounded-xl text-white outline-none transition-all"
+                className="w-full bg-soft border border-ink/10 focus:border-primary focus:ring-1 focus:ring-primary p-3 rounded-xl text-ink outline-none transition-all"
                 required
               />
             </div>
@@ -1535,7 +1912,7 @@ export default function App() {
             <button
               type="submit"
               disabled={authLoading}
-              className="w-full bg-gradient-to-r from-emerald-500 to-emerald-600 text-white font-bold py-3.5 rounded-xl hover:from-emerald-400 hover:to-emerald-500 transition-all shadow-lg shadow-emerald-500/25 active:scale-95 disabled:opacity-60 flex items-center justify-center gap-2"
+              className="w-full bg-primary text-ink font-bold py-3.5 rounded-xl hover:brightness-95 transition-all active:scale-95 disabled:opacity-60 flex items-center justify-center gap-2"
             >
               {authLoading && <Loader2 className="w-4 h-4 animate-spin" />}
               Entrar
@@ -1547,20 +1924,20 @@ export default function App() {
   }
 
   return (
-    <div className="flex h-screen bg-[#0f1115] text-white font-sans overflow-hidden selection:bg-emerald-500/30">
+    <div className="flex h-screen bg-mint text-ink font-sans overflow-hidden selection:bg-primary/30">
       {sidebarOpen && (
         <div className="fixed inset-0 bg-black/60 z-[60] lg:hidden" onClick={() => setSidebarOpen(false)} />
       )}
 
-      <aside className={`fixed lg:relative w-64 bg-[#0f1115]/95 backdrop-blur-2xl border-r border-white/10 flex flex-col z-[70] h-full transition-transform duration-300 ease-in-out ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'} lg:translate-x-0`}>
-        <div className="h-16 lg:h-24 flex items-center justify-between px-6 lg:px-8 border-b border-white/5">
+      <aside className={`fixed lg:relative w-64 bg-white border-r border-ink/10 flex flex-col z-[70] h-full transition-transform duration-300 ease-in-out ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'} lg:translate-x-0`}>
+        <div className="h-16 lg:h-24 flex items-center justify-between px-6 lg:px-8 border-b border-ink/10">
           <div className="flex items-center">
             <img src="/Logo.png" alt="Logo" className="w-8 h-8 lg:w-10 lg:h-10 object-contain mr-3" />
-            <h1 className="text-lg lg:text-xl font-extrabold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-white to-white/60">
+            <h1 className="text-lg lg:text-xl font-extrabold tracking-tight text-ink">
               ZimFinance
             </h1>
           </div>
-          <button onClick={() => setSidebarOpen(false)} className="p-1.5 text-white/40 hover:text-white lg:hidden rounded-lg">
+          <button onClick={() => setSidebarOpen(false)} className="p-1.5 text-ink/65 hover:text-ink lg:hidden rounded-lg">
             <X className="w-5 h-5" />
           </button>
         </div>
@@ -1571,7 +1948,7 @@ export default function App() {
               setActiveView('dashboard');
               setSidebarOpen(false);
             }}
-            className={`w-full flex items-center px-4 py-3.5 rounded-2xl font-bold transition-all ${activeView === 'dashboard' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'text-white/50 hover:text-white hover:bg-white/5 border border-transparent'}`}
+            className={`w-full flex items-center px-4 py-3.5 rounded-2xl font-bold transition-all ${activeView === 'dashboard' ? 'bg-primary text-ink shadow-sm' : 'text-ink/70 hover:bg-soft'}`}
           >
             <LayoutDashboard className="w-5 h-5 mr-3" />
             Dashboard
@@ -1582,7 +1959,7 @@ export default function App() {
               setActiveView('lancamentos');
               setSidebarOpen(false);
             }}
-            className={`w-full flex items-center px-4 py-3.5 rounded-2xl font-bold transition-all ${activeView === 'lancamentos' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'text-white/50 hover:text-white hover:bg-white/5 border border-transparent'}`}
+            className={`w-full flex items-center px-4 py-3.5 rounded-2xl font-bold transition-all ${activeView === 'lancamentos' ? 'bg-primary text-ink shadow-sm' : 'text-ink/70 hover:bg-soft'}`}
           >
             <Receipt className="w-5 h-5 mr-3" />
             Lançamentos
@@ -1594,7 +1971,7 @@ export default function App() {
               setSidebarOpen(false);
               loadAdminUsers();
             }}
-            className={`w-full flex items-center px-4 py-3.5 rounded-2xl font-bold transition-all ${activeView === 'settings' ? 'bg-violet-500/10 text-violet-400 border border-violet-500/20' : 'text-white/50 hover:text-white hover:bg-white/5 border border-transparent'}`}
+            className={`w-full flex items-center px-4 py-3.5 rounded-2xl font-bold transition-all ${activeView === 'settings' ? 'bg-primary text-ink shadow-sm' : 'text-ink/70 hover:bg-soft'}`}
           >
             <Settings className="w-5 h-5 mr-3" />
             Configurações
@@ -1602,42 +1979,36 @@ export default function App() {
 
         </nav>
 
-        <div className="p-4 border-t border-white/5">
-          <div className="flex items-center justify-between bg-black/20 p-3 rounded-2xl border border-white/5">
+        <div className="p-4 border-t border-ink/10">
+          <div className="flex items-center justify-between bg-soft p-3 rounded-2xl border border-ink/10">
             <div className="flex items-center overflow-hidden">
-              <div className="w-2 h-2 rounded-full bg-emerald-500 mr-2 flex-shrink-0" />
-              <span className="text-xs text-white/50 truncate pr-2">{session.user.email}</span>
+              <div className="w-2 h-2 rounded-full bg-primary mr-2 flex-shrink-0" />
+              <span className="text-xs text-ink/70 truncate pr-2">{session.user.email}</span>
             </div>
-            <button onClick={handleLogout} className="p-2 bg-white/5 hover:bg-rose-500/20 hover:text-rose-400 rounded-xl text-white/70 transition-colors">
+            <button onClick={handleLogout} className="p-2 bg-soft hover:bg-rose-500/20 hover:text-rose-700 rounded-xl text-ink/80 transition-colors">
               <LogOut className="w-4 h-4" />
             </button>
           </div>
         </div>
       </aside>
 
-      <main className="flex-1 flex flex-col relative overflow-hidden">
-        <div className="fixed top-[-10%] left-[-10%] w-[40%] h-[40%] rounded-full bg-emerald-600/20 blur-[120px] pointer-events-none" />
-        <div className="fixed bottom-[10%] right-[-10%] w-[40%] h-[40%] rounded-full bg-indigo-600/20 blur-[120px] pointer-events-none" />
-
-        <header className="h-14 lg:h-16 px-3 lg:px-8 border-b border-white/10 flex items-center justify-between bg-white/5 backdrop-blur-xl z-40">
-          <div className="flex items-center gap-2">
-            <h2 className="text-sm lg:text-lg font-bold text-white/90 truncate">
-              {activeView === 'dashboard' ? 'Dashboard' : activeView === 'lancamentos' ? 'Lançamentos' : 'Configurações'}
+      <main className="flex-1 flex flex-col relative overflow-y-auto bg-primary custom-scrollbar">
+        <header className="shrink-0 w-full max-w-[1600px] mx-auto px-4 lg:px-8 pt-4 lg:pt-6 pb-2 flex items-center justify-between gap-3 relative z-40">
+          <div className="min-w-0">
+            <h2 className="text-base lg:text-2xl font-bold text-ink truncate">
+              {activeView === 'dashboard'
+                ? `Olá, ${userProfile?.display_name || session.user.email?.split('@')[0]}`
+                : activeView === 'lancamentos'
+                ? 'Lançamentos'
+                : 'Configurações'}
             </h2>
+            <p className="hidden sm:block text-xs text-ink/70">
+              {activeView === 'settings' ? 'Sua conta e preferências' : `${MONTH_NAMES[currentMonthIndex]} de ${currentYear}`}
+            </p>
           </div>
 
           <div className="flex items-center gap-2">
-            <div className="flex items-center gap-1 bg-black/40 px-1.5 py-1 rounded-xl border border-white/10 relative">
-              <button onClick={() => setCurrentYear(y => y - 1)} className="p-1.5 text-white/40 hover:text-white hover:bg-white/10 rounded-lg transition-colors">
-                <ChevronLeft className="w-3.5 h-3.5" />
-              </button>
-              <span className="w-10 text-center font-bold text-emerald-400 font-mono text-xs">{currentYear}</span>
-              <button onClick={() => setCurrentYear(y => y + 1)} className="p-1.5 text-white/40 hover:text-white hover:bg-white/10 rounded-lg transition-colors">
-                <ChevronRight className="w-3.5 h-3.5" />
-              </button>
-
-              <div className="w-px h-5 bg-white/10 mx-0.5" />
-
+            <div className={`${activeView === 'settings' ? 'hidden' : 'flex'} items-center gap-0.5 bg-mint px-1 py-1 rounded-full relative shadow-sm`}>
               <button
                 onClick={() => {
                   if (currentMonthIndex === 0) {
@@ -1647,16 +2018,16 @@ export default function App() {
                     setCurrentMonthIndex(m => m - 1);
                   }
                 }}
-                className="p-1.5 text-white/40 hover:text-white hover:bg-white/10 rounded-lg transition-colors"
+                className="p-1.5 text-ink/70 hover:bg-soft rounded-full transition-colors"
               >
                 <ChevronLeft className="w-3.5 h-3.5" />
               </button>
 
               <button
                 onClick={() => setShowMonthPicker(p => !p)}
-                className={`px-3 py-1 text-xs font-bold rounded-lg transition-all cursor-pointer ${currentMonthIndex === realCurrentMonth && currentYear === realCurrentYear ? 'text-emerald-400 bg-emerald-500/15' : 'text-white/80 hover:bg-white/10'}`}
+                className="px-2 py-1 text-xs font-bold rounded-full whitespace-nowrap hover:bg-soft transition-all cursor-pointer"
               >
-                {MONTH_NAMES[currentMonthIndex].substring(0, 3)}
+                {MONTH_NAMES[currentMonthIndex].substring(0, 3)} {currentYear}
               </button>
 
               <button
@@ -1668,7 +2039,7 @@ export default function App() {
                     setCurrentMonthIndex(m => m + 1);
                   }
                 }}
-                className="p-1.5 text-white/40 hover:text-white hover:bg-white/10 rounded-lg transition-colors"
+                className="p-1.5 text-ink/70 hover:bg-soft rounded-full transition-colors"
               >
                 <ChevronRight className="w-3.5 h-3.5" />
               </button>
@@ -1676,7 +2047,16 @@ export default function App() {
               {showMonthPicker && (
                 <>
                   <div className="fixed inset-0 z-40" onClick={() => setShowMonthPicker(false)} />
-                  <div className="absolute top-full right-0 mt-2 z-50 bg-[#1a1d23] border border-white/10 rounded-2xl p-3 shadow-2xl backdrop-blur-xl w-64 animate-in fade-in zoom-in-95 duration-150">
+                  <div className="absolute top-full right-0 mt-2 z-50 bg-white border border-ink/10 rounded-2xl p-3 shadow-2xl w-64 animate-in fade-in zoom-in-95 duration-150">
+                    <div className="flex items-center justify-between mb-2">
+                      <button onClick={() => setCurrentYear(y => y - 1)} aria-label="Ano anterior" className="p-1.5 text-ink/70 hover:bg-soft rounded-full transition-colors">
+                        <ChevronLeft className="w-4 h-4" />
+                      </button>
+                      <span className="text-sm font-bold text-ink">{currentYear}</span>
+                      <button onClick={() => setCurrentYear(y => y + 1)} aria-label="Próximo ano" className="p-1.5 text-ink/70 hover:bg-soft rounded-full transition-colors">
+                        <ChevronRight className="w-4 h-4" />
+                      </button>
+                    </div>
                     <div className="grid grid-cols-3 gap-1.5">
                       {MONTH_NAMES.map((m, idx) => {
                         const isActive = idx === currentMonthIndex;
@@ -1689,7 +2069,7 @@ export default function App() {
                               setCurrentMonthIndex(idx);
                               setShowMonthPicker(false);
                             }}
-                            className={`px-2 py-2 rounded-xl text-xs font-bold transition-all ${isActive ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/25' : isCurrent ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30' : 'text-white/60 hover:bg-white/10 hover:text-white'}`}
+                            className={`px-2 py-2 rounded-xl text-xs font-bold transition-all ${isActive ? 'bg-primary text-ink' : isCurrent ? 'bg-primary/15 text-primary-dark border border-primary/30' : 'text-ink/70 hover:bg-ink/5 hover:text-ink'}`}
                           >
                             {m.substring(0, 3)}
                           </button>
@@ -1706,11 +2086,11 @@ export default function App() {
             <div className="relative">
               <button
                 onClick={() => setShowNotifications(p => !p)}
-                className="p-2 text-white/50 hover:text-white hover:bg-white/10 rounded-xl transition-all relative"
+                aria-label="Notificações" className="p-2 bg-mint text-ink rounded-full shadow-sm transition-all relative"
               >
                 <Bell className="w-5 h-5" />
                 {notifications.length > 0 && (
-                  <span className="absolute -top-0.5 -right-0.5 w-4 h-4 bg-rose-500 rounded-full text-[9px] font-bold flex items-center justify-center">
+                  <span className="absolute -top-0.5 -right-0.5 w-4 h-4 bg-rose-500 text-white rounded-full text-[9px] font-bold flex items-center justify-center">
                     {notifications.length}
                   </span>
                 )}
@@ -1719,30 +2099,30 @@ export default function App() {
               {showNotifications && (
                 <>
                   <div className="fixed inset-0 z-40" onClick={() => setShowNotifications(false)} />
-                  <div className="absolute right-0 top-full mt-2 z-50 w-80 bg-[#1a1d23] border border-white/10 rounded-2xl shadow-2xl overflow-hidden">
-                    <div className="px-4 py-3 border-b border-white/10 flex items-center gap-2">
-                      <Bell className="w-4 h-4 text-emerald-400" />
+                  <div className="absolute right-0 top-full mt-2 z-50 w-80 bg-white border border-ink/10 rounded-2xl shadow-2xl overflow-hidden">
+                    <div className="px-4 py-3 border-b border-ink/10 flex items-center gap-2">
+                      <Bell className="w-4 h-4 text-primary-dark" />
                       <span className="font-bold text-sm">Notificações</span>
                     </div>
 
                     {notifications.length === 0 ? (
-                      <div className="px-4 py-8 text-center text-white/30 text-sm">Nenhuma notificação pendente</div>
+                      <div className="px-4 py-8 text-center text-ink/65 text-sm">Nenhuma notificação pendente</div>
                     ) : (
-                      <div className="max-h-80 overflow-y-auto divide-y divide-white/5">
+                      <div className="max-h-80 overflow-y-auto divide-y divide-ink/5">
                         {notifications.map(n => (
                           <div key={n.id} className="p-4">
-                            <p className="text-xs text-white/50 mb-1">{n.from_user_email}</p>
-                            <p className="font-bold text-sm text-white mb-0.5">{n.expense_name}</p>
+                            <p className="text-xs text-ink/70 mb-1">{n.from_user_email}</p>
+                            <p className="font-bold text-sm text-ink mb-0.5">{n.expense_name}</p>
                             <div className="flex items-center gap-2 text-xs mb-3">
-                              <span className="text-white/50">Sua parte:</span>
-                              <span className="text-emerald-400 font-mono font-bold">{formatCurrency(n.share_value)}</span>
-                              <span className="text-white/30">de {formatCurrency(n.expense_value)}</span>
+                              <span className="text-ink/70">Sua parte:</span>
+                              <span className="text-primary-dark tabular-nums font-bold">{formatCurrency(n.share_value)}</span>
+                              <span className="text-ink/65">de {formatCurrency(n.expense_value)}</span>
                             </div>
                             <div className="flex gap-2">
-                              <button onClick={() => respondToShare(n, true)} className="flex-1 flex items-center justify-center gap-1 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-400 text-xs font-bold py-2 rounded-xl transition-all">
+                              <button onClick={() => respondToShare(n, true)} className="flex-1 flex items-center justify-center gap-1 bg-primary/20 hover:bg-primary/30 text-primary-dark text-xs font-bold py-2 rounded-xl transition-all">
                                 <CheckCircle className="w-3.5 h-3.5" /> Aceitar
                               </button>
-                              <button onClick={() => respondToShare(n, false)} className="flex-1 flex items-center justify-center gap-1 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 text-xs font-bold py-2 rounded-xl transition-all">
+                              <button onClick={() => respondToShare(n, false)} className="flex-1 flex items-center justify-center gap-1 bg-rose-500/10 hover:bg-rose-500/20 text-rose-700 text-xs font-bold py-2 rounded-xl transition-all">
                                 <XCircle className="w-3.5 h-3.5" /> Recusar
                               </button>
                             </div>
@@ -1758,96 +2138,148 @@ export default function App() {
         </header>
 
         {activeView !== 'settings' && (
-          <div className="flex-1 overflow-y-auto p-3 lg:p-6 pb-20 lg:pb-6 relative z-10 custom-scrollbar">
+          <section className="shrink-0 w-full max-w-[1600px] mx-auto px-5 lg:px-8 pt-3 pb-7 text-ink">
+            <div className="flex gap-4 lg:gap-8 mb-4">
+              <div className="min-w-0">
+                <p className="flex items-center gap-1.5 text-xs text-ink/80 mb-1">
+                  <Wallet className="w-3.5 h-3.5 shrink-0" /> Saldo do mês
+                </p>
+                <p className={`text-2xl lg:text-3xl font-bold tabular-nums truncate ${totals.totalRemaining < 0 ? 'text-rose-800' : 'text-ink'}`}>
+                  {formatCurrency(totals.totalRemaining)}
+                </p>
+              </div>
+              <div className="w-px bg-ink/25" />
+              <div className="min-w-0">
+                <p className="flex items-center gap-1.5 text-xs text-ink/80 mb-1">
+                  <TrendingDown className="w-3.5 h-3.5 shrink-0" /> Total de gastos
+                </p>
+                <p className="text-2xl lg:text-3xl font-bold tabular-nums truncate text-brand-blue-dark">
+                  {formatCurrency(totals.totalExpenses)}
+                </p>
+              </div>
+            </div>
+
+            <div
+              role="progressbar"
+              aria-label="Receita já comprometida"
+              aria-valuenow={Math.min(incomeUsed, 100)}
+              aria-valuemin={0}
+              aria-valuemax={100}
+              className="relative h-7 rounded-full bg-mint overflow-hidden"
+            >
+              <div
+                className={`absolute inset-y-0 left-0 rounded-full flex items-center pl-3 text-[11px] font-bold text-mint transition-all duration-500 ${incomeUsed > 100 ? 'bg-rose-700' : 'bg-ink'}`}
+                style={{ width: `max(3.25rem, ${Math.min(incomeUsed, 100)}%)` }}
+              >
+                {incomeUsed}%
+              </div>
+              {incomeUsed < 75 && (
+                <span className="absolute inset-y-0 right-3 flex items-center text-xs font-semibold italic text-ink tabular-nums">
+                  {formatCurrency(totals.totalIncome)}
+                </span>
+              )}
+            </div>
+            <p className="flex items-center gap-1.5 mt-2 text-xs text-ink/90">
+              <CheckCircle className="w-3.5 h-3.5 shrink-0" />
+              {totals.totalIncome === 0
+                ? 'Informe sua receita em Lançamentos para acompanhar o mês.'
+                : incomeUsed > 100
+                ? `Os gastos passam ${formatCurrency(-totals.totalRemaining)} da receita do mês.`
+                : `${incomeUsed}% da receita de ${formatCurrency(totals.totalIncome)} já está comprometida.`}
+            </p>
+          </section>
+        )}
+
+        <div className="flex-[1_0_auto] bg-mint rounded-t-[2.5rem] lg:rounded-t-[3rem] relative z-10">
+
+        {activeView !== 'settings' && (
+          <div className="p-4 lg:p-8 pb-24 lg:pb-8">
             {loading ? (
-              <div className="flex flex-col items-center justify-center h-full">
-                <Loader2 className="w-8 h-8 animate-spin text-emerald-500" />
+              <div className="flex flex-col items-center justify-center py-24">
+                <Loader2 className="w-8 h-8 animate-spin text-primary" />
               </div>
             ) : (
               <div className="space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-500 max-w-[1600px] mx-auto">
-                <div className="grid grid-cols-2 lg:grid-cols-5 gap-2 lg:gap-3">
-                  {[
-                    { label: 'Receita Mensal', value: totals.totalIncome, icon: TrendingUp, color: 'emerald', sub: null },
-                    { label: 'Gastos Mensal', value: totals.totalExpenses, icon: TrendingDown, color: 'rose', sub: null },
-                    { label: 'Saldo Pgto', value: totals.remainingPagamento, icon: DollarSign, color: totals.remainingPagamento >= 0 ? 'emerald' : 'rose', sub: `Rec: ${formatCurrency(totals.totalPagamentoIncome)}` },
-                    { label: 'Saldo Adto', value: totals.remainingVale, icon: Wallet, color: totals.remainingVale >= 0 ? 'indigo' : 'rose', sub: `Rec: ${formatCurrency(totals.totalValeIncome)}` },
-                    { label: 'Saldo Total', value: totals.totalRemaining, icon: DollarSign, color: totals.totalRemaining >= 0 ? 'emerald' : 'rose', sub: null },
-                  ].map((card, idx) => {
-                    const Icon = card.icon;
-                    const colorMap: Record<string, string> = {
-                      emerald: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20',
-                      rose: 'text-rose-400 bg-rose-500/10 border-rose-500/20',
-                      indigo: 'text-indigo-400 bg-indigo-500/10 border-indigo-500/20',
-                    };
-                    const colors = colorMap[card.color] || colorMap.emerald;
-                    const textColor = card.color === 'rose' ? 'text-rose-400' : card.color === 'indigo' ? 'text-indigo-400' : 'text-emerald-400';
-
-                    return (
-                      <div key={idx} className={`${idx === 4 ? 'col-span-2 lg:col-span-1' : ''} bg-white/5 backdrop-blur-xl rounded-xl lg:rounded-2xl border border-white/10 p-3 lg:p-4 hover:border-white/20 transition-all group`}>
-                        <div className="flex items-center justify-between mb-2">
-                          <span className="text-[10px] font-bold text-white/40 uppercase tracking-widest">{card.label}</span>
-                          <div className={`p-1.5 rounded-lg border ${colors}`}>
-                            <Icon className="w-3 h-3" />
-                          </div>
+                <div className="bg-primary rounded-3xl p-4 lg:p-5 flex items-center gap-4 lg:gap-8 text-ink shadow-card">
+                  <div className="flex flex-col items-center shrink-0 w-20 lg:w-24">
+                    <div className="relative w-14 h-14 lg:w-16 lg:h-16">
+                      <svg viewBox="0 0 36 36" className="w-full h-full -rotate-90" aria-hidden="true">
+                        <circle cx="18" cy="18" r="15.5" fill="none" stroke="#F1FFF3" strokeWidth="3" />
+                        <circle cx="18" cy="18" r="15.5" fill="none" stroke="#0052CC" strokeWidth="3" strokeLinecap="round" pathLength={100} strokeDasharray={`${paidShare} 100`} />
+                      </svg>
+                      <span className="absolute inset-0 flex items-center justify-center text-xs font-bold tabular-nums">{paidShare}%</span>
+                    </div>
+                    <span className="mt-1 text-[11px] font-medium text-center leading-tight">Contas pagas</span>
+                  </div>
+                  <div className="w-px self-stretch bg-mint/70" />
+                  <div className="flex-1 min-w-0 grid gap-2 lg:grid-cols-2 lg:gap-8">
+                    {[
+                      { label: 'Saldo do Pagamento', value: totals.remainingPagamento, income: totals.totalPagamentoIncome, icon: DollarSign },
+                      { label: 'Saldo do Adiantamento', value: totals.remainingVale, income: totals.totalValeIncome, icon: Wallet },
+                    ].map(({ label, value, income: sourceIncome, icon: Icon }, idx) => (
+                      <div key={label} className={`flex items-center gap-3 min-w-0 ${idx === 1 ? 'border-t border-mint/70 pt-2 lg:border-0 lg:pt-0' : ''}`}>
+                        <Icon className="hidden sm:block w-6 h-6 shrink-0" />
+                        <div className="min-w-0">
+                          <p className="text-[11px] truncate">{label}</p>
+                          <p className={`text-base lg:text-lg font-bold tabular-nums truncate ${value < 0 ? 'text-rose-800' : 'text-ink'}`}>{formatCurrency(value)}</p>
+                          <p className="text-[10px] text-ink/80 tabular-nums truncate">Recebe {formatCurrency(sourceIncome)}</p>
                         </div>
-                        <p className={`text-base lg:text-xl font-extrabold font-mono tracking-tight ${textColor}`}>{formatCurrency(card.value)}</p>
-                        {card.sub && <p className="text-[10px] text-white/30 font-mono mt-1">{card.sub}</p>}
                       </div>
-                    );
-                  })}
+                    ))}
+                  </div>
                 </div>
 
                 {activeView === 'dashboard' ? (
                   <div className="space-y-4">
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 lg:gap-3">
-                      <div className="bg-emerald-500/5 border border-emerald-500/15 rounded-xl px-3 lg:px-4 py-2.5 lg:py-3 flex items-center justify-between">
-                        <span className="text-[9px] lg:text-[10px] font-bold text-white/40 uppercase tracking-widest">Receita Anual</span>
-                        <span className="text-xs lg:text-sm font-mono font-bold text-emerald-400">{formatCurrency(annualTotals.income)}</span>
+                      <div className="bg-primary/5 border border-primary/15 rounded-xl px-3 lg:px-4 py-2.5 lg:py-3 flex items-center justify-between">
+                        <span className="text-[9px] lg:text-[10px] font-bold text-ink/65 uppercase tracking-widest">Receita Anual</span>
+                        <span className="text-xs lg:text-sm tabular-nums font-bold text-primary-dark">{formatCurrency(annualTotals.income)}</span>
                       </div>
                       <div className="bg-rose-500/5 border border-rose-500/15 rounded-xl px-3 lg:px-4 py-2.5 lg:py-3 flex items-center justify-between">
-                        <span className="text-[9px] lg:text-[10px] font-bold text-white/40 uppercase tracking-widest">Gasto Anual</span>
-                        <span className="text-xs lg:text-sm font-mono font-bold text-rose-400">{formatCurrency(annualTotals.expense)}</span>
+                        <span className="text-[9px] lg:text-[10px] font-bold text-ink/65 uppercase tracking-widest">Gasto Anual</span>
+                        <span className="text-xs lg:text-sm tabular-nums font-bold text-rose-700">{formatCurrency(annualTotals.expense)}</span>
                       </div>
-                      <div className={`${annualTotals.balance >= 0 ? 'bg-emerald-500/10 border-emerald-500/20' : 'bg-rose-500/10 border-rose-500/20'} border rounded-xl px-3 lg:px-4 py-2.5 lg:py-3 flex items-center justify-between`}>
-                        <span className="text-[9px] lg:text-[10px] font-bold text-white/40 uppercase tracking-widest">Projeção Anual</span>
-                        <span className={`text-xs lg:text-sm font-mono font-bold ${annualTotals.balance >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{formatCurrency(annualTotals.balance || 0)}</span>
+                      <div className={`${annualTotals.balance >= 0 ? 'bg-primary/10 border-primary/20' : 'bg-rose-500/10 border-rose-500/20'} border rounded-xl px-3 lg:px-4 py-2.5 lg:py-3 flex items-center justify-between`}>
+                        <span className="text-[9px] lg:text-[10px] font-bold text-ink/65 uppercase tracking-widest">Projeção Anual</span>
+                        <span className={`text-xs lg:text-sm tabular-nums font-bold ${annualTotals.balance >= 0 ? 'text-primary-dark' : 'text-rose-700'}`}>{formatCurrency(annualTotals.balance || 0)}</span>
                       </div>
                     </div>
 
                     <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
-                      <div className="xl:col-span-2 bg-white/5 backdrop-blur-xl p-5 rounded-2xl border border-white/10 flex flex-col shadow-xl">
-                        <h3 className="text-sm font-bold text-white/70 mb-4 flex items-center gap-2">
-                          <TrendingUp className="w-4 h-4 text-indigo-400" />
+                      <div className="xl:col-span-2 bg-white p-5 rounded-2xl border border-ink/10 flex flex-col shadow-xl">
+                        <h3 className="text-sm font-bold text-ink/80 mb-4 flex items-center gap-2">
+                          <TrendingUp className="w-4 h-4 text-brand-blue" />
                           Visão Anual ({currentYear})
                         </h3>
                         <div className="flex-1 w-full min-h-[260px]">
                           <ResponsiveContainer width="100%" height="100%">
                             <BarChart data={yearData} margin={{ top: 5, right: 5, left: -25, bottom: 0 }}>
-                              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
-                              <XAxis dataKey="name" stroke="rgba(255,255,255,0.3)" fontSize={11} tickLine={false} axisLine={false} />
-                              <YAxis stroke="rgba(255,255,255,0.3)" fontSize={10} tickFormatter={(val) => `${Number(val) / 1000}k`} tickLine={false} axisLine={false} />
-                              <Tooltip cursor={{ fill: 'rgba(255,255,255,0.05)' }} contentStyle={{ backgroundColor: '#0f1115', borderColor: 'rgba(255,255,255,0.1)', borderRadius: '12px', color: '#fff', fontSize: '12px' }} />
+                              <CartesianGrid strokeDasharray="3 3" stroke="rgba(9,48,48,0.08)" vertical={false} />
+                              <XAxis dataKey="name" stroke="rgba(9,48,48,0.65)" fontSize={11} tickLine={false} axisLine={false} />
+                              <YAxis stroke="rgba(9,48,48,0.65)" fontSize={10} tickFormatter={(val) => `${Number(val) / 1000}k`} tickLine={false} axisLine={false} />
+                              <Tooltip cursor={{ fill: 'rgba(0,208,158,0.1)' }} contentStyle={{ backgroundColor: '#fff', border: 'none', borderRadius: '16px', color: '#093030', fontSize: '12px', boxShadow: '0 8px 24px rgba(9,48,48,0.12)' }} />
                               <Legend iconType="circle" wrapperStyle={{ fontSize: '11px', paddingTop: '8px' }} />
-                              <Bar dataKey="Receitas" fill="#10b981" radius={[3, 3, 0, 0]} maxBarSize={32} />
-                              <Bar dataKey="Despesas" fill="#f43f5e" radius={[3, 3, 0, 0]} maxBarSize={32} />
+                              <Bar dataKey="Receitas" fill="#00D09E" radius={[6, 6, 0, 0]} maxBarSize={14} />
+                              <Bar dataKey="Despesas" fill="#0068FF" radius={[6, 6, 0, 0]} maxBarSize={14} />
                             </BarChart>
                           </ResponsiveContainer>
                         </div>
                       </div>
 
-                      <div className="xl:col-span-1 bg-white/5 backdrop-blur-xl p-5 rounded-2xl border border-white/10 flex flex-col shadow-xl">
+                      <div className="xl:col-span-1 bg-white p-5 rounded-2xl border border-ink/10 flex flex-col shadow-xl">
                         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
-                          <h3 className="text-sm font-bold text-white/70 flex items-center gap-2">
-                            <PieChartIcon className="w-4 h-4 text-emerald-400" />
+                          <h3 className="text-sm font-bold text-ink/80 flex items-center gap-2">
+                            <PieChartIcon className="w-4 h-4 text-primary-dark" />
                             Maiores Gastos
                           </h3>
-                          <div className="flex items-center gap-1 bg-black/40 p-1 rounded-xl border border-white/10 text-[10px] font-bold self-start sm:self-auto">
+                          <div className="flex items-center gap-1 bg-soft p-1 rounded-xl border border-ink/10 text-[10px] font-bold self-start sm:self-auto">
                             <button
                               onClick={() => setExpensePieMode('month')}
                               className={`px-2 py-1 rounded-lg transition-all cursor-pointer ${
                                 expensePieMode === 'month'
-                                  ? 'bg-emerald-500 text-white shadow-md shadow-emerald-500/20'
-                                  : 'text-white/40 hover:text-white'
+                                  ? 'bg-primary text-ink'
+                                  : 'text-ink/65 hover:text-ink'
                               }`}
                             >
                               Mês
@@ -1856,8 +2288,8 @@ export default function App() {
                               onClick={() => setExpensePieMode('ytd')}
                               className={`px-2 py-1 rounded-lg transition-all cursor-pointer ${
                                 expensePieMode === 'ytd'
-                                  ? 'bg-emerald-500 text-white shadow-md shadow-emerald-500/20'
-                                  : 'text-white/40 hover:text-white'
+                                  ? 'bg-primary text-ink'
+                                  : 'text-ink/65 hover:text-ink'
                               }`}
                               title="Acumulado de Janeiro até o mês atual"
                             >
@@ -1867,8 +2299,8 @@ export default function App() {
                               onClick={() => setExpensePieMode('year')}
                               className={`px-2 py-1 rounded-lg transition-all cursor-pointer ${
                                 expensePieMode === 'year'
-                                  ? 'bg-emerald-500 text-white shadow-md shadow-emerald-500/20'
-                                  : 'text-white/40 hover:text-white'
+                                  ? 'bg-primary text-ink'
+                                  : 'text-ink/65 hover:text-ink'
                               }`}
                               title="Projeção total de 12 meses"
                             >
@@ -1901,18 +2333,18 @@ export default function App() {
                                       if (active && payload && payload.length) {
                                         const data = payload[0].payload;
                                         return (
-                                          <div className="bg-[#0f1115]/95 border border-white/10 p-3 rounded-xl shadow-2xl backdrop-blur-xl text-xs space-y-1.5 min-w-[190px]">
-                                            <p className="font-bold text-white border-b border-white/10 pb-1">{data.name}</p>
-                                            <div className="flex justify-between items-center text-emerald-400 font-mono">
-                                              <span className="text-white/50 text-[10px]">No Mês:</span>
+                                          <div className="bg-white border border-ink/10 p-3 rounded-xl shadow-2xl text-xs space-y-1.5 min-w-[190px]">
+                                            <p className="font-bold text-ink border-b border-ink/10 pb-1">{data.name}</p>
+                                            <div className="flex justify-between items-center text-primary-dark tabular-nums">
+                                              <span className="text-ink/70 text-[10px]">No Mês:</span>
                                               <span className="font-bold">{formatCurrency(data.monthValue)}</span>
                                             </div>
-                                            <div className="flex justify-between items-center text-indigo-400 font-mono">
-                                              <span className="text-white/50 text-[10px]">Acumulado (Até Hoje):</span>
+                                            <div className="flex justify-between items-center text-brand-blue tabular-nums">
+                                              <span className="text-ink/70 text-[10px]">Acumulado (Até Hoje):</span>
                                               <span className="font-bold">{formatCurrency(data.ytdValue)}</span>
                                             </div>
-                                            <div className="flex justify-between items-center text-amber-400 font-mono">
-                                              <span className="text-white/50 text-[10px]">Total Anual:</span>
+                                            <div className="flex justify-between items-center text-amber-700 tabular-nums">
+                                              <span className="text-ink/70 text-[10px]">Total Anual:</span>
                                               <span className="font-bold">{formatCurrency(data.yearValue)}</span>
                                             </div>
                                           </div>
@@ -1925,7 +2357,7 @@ export default function App() {
                               </ResponsiveContainer>
                             </div>
 
-                            <div className="mt-3 space-y-1.5 max-h-48 overflow-y-auto custom-scrollbar pr-1 divide-y divide-white/5">
+                            <div className="mt-3 space-y-1.5 max-h-48 overflow-y-auto custom-scrollbar pr-1 divide-y divide-ink/5">
                               {pieChartData.map((item, idx) => (
                                 <div key={item.name} className="pt-1.5 first:pt-0 flex items-center justify-between text-xs">
                                   <div className="flex items-center gap-2 overflow-hidden mr-2">
@@ -1933,11 +2365,11 @@ export default function App() {
                                       className="w-2.5 h-2.5 rounded-full shrink-0"
                                       style={{ backgroundColor: PIE_COLORS[idx % PIE_COLORS.length] }}
                                     />
-                                    <span className="font-medium text-white/80 truncate">{item.name}</span>
+                                    <span className="font-medium text-ink/90 truncate">{item.name}</span>
                                   </div>
-                                  <div className="text-right font-mono shrink-0">
-                                    <span className="text-white font-bold block">{formatCurrency(item.value)}</span>
-                                    <span className="text-[9px] text-white/40 block">
+                                  <div className="text-right tabular-nums shrink-0">
+                                    <span className="text-ink font-bold block">{formatCurrency(item.value)}</span>
+                                    <span className="text-[9px] text-ink/65 block">
                                       Mês: {formatCurrency(item.monthValue)} | Anual: {formatCurrency(item.yearValue)}
                                     </span>
                                   </div>
@@ -1946,7 +2378,7 @@ export default function App() {
                             </div>
                           </div>
                         ) : (
-                          <div className="flex-1 flex flex-col items-center justify-center text-white/40 min-h-[260px]">
+                          <div className="flex-1 flex flex-col items-center justify-center text-ink/65 min-h-[260px]">
                             <PieChartIcon className="w-12 h-12 mb-3 opacity-20" />
                             <p className="text-sm">Nenhum gasto registrado.</p>
                           </div>
@@ -1957,19 +2389,19 @@ export default function App() {
                 ) : (
                   <div className="space-y-4">
                     <QuickEntryInput onAddEntry={handleQuickEntry} cards={items.filter(i => i.type.startsWith('card_'))} />
-                    <div className="bg-white/5 backdrop-blur-xl rounded-2xl border border-white/10 overflow-hidden">
+                    <div className="bg-white rounded-3xl shadow-card overflow-hidden">
 
-                      <div className="flex items-center justify-between px-4 py-2.5 border-b border-white/5">
-                        <span className="text-[10px] font-bold text-white/40 uppercase tracking-widest flex items-center gap-1.5">
-                          <TrendingUp className="w-3 h-3 text-emerald-400" /> Receitas
+                      <div className="flex items-center justify-between px-4 py-2.5 border-b border-ink/10">
+                        <span className="text-[10px] font-bold text-ink/65 uppercase tracking-widest flex items-center gap-1.5">
+                          <TrendingUp className="w-3 h-3 text-primary-dark" /> Receitas
                         </span>
                         {editingIncome ? (
-                          <button onClick={saveIncome} className="flex items-center gap-1 text-emerald-400 bg-emerald-500/20 hover:bg-emerald-500/30 px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all">
+                          <button onClick={saveIncome} className="flex items-center gap-1 text-primary-dark bg-primary/20 hover:bg-primary/30 px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all">
                             <Check className="w-3 h-3" /> Salvar
                           </button>
                         ) : (
-                          <button onClick={() => setEditingIncome(true)} className="flex items-center gap-1 text-white/30 hover:text-white bg-white/5 hover:bg-white/10 px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all">
-                            <Edit2 className="w-3 h-3" /> Editar
+                          <button onClick={() => setEditingIncome(true)} className="flex items-center gap-1 text-ink/65 hover:text-ink bg-soft hover:bg-ink/5 px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all">
+                            <Edit2 className="w-4 h-4" /> Editar
                           </button>
                         )}
                       </div>
@@ -1981,109 +2413,125 @@ export default function App() {
                           { label: 'Férias', field: 'ferias', color: 'emerald' },
                           ...(currentMonthIndex === 10 || currentMonthIndex === 11 ? [{ label: '13º Salário', field: 'decimoTerceiro', color: 'emerald' }] : []),
                         ].map(inputMap => (
-                          <div key={inputMap.field} className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border transition-all text-xs ${editingIncome ? 'border-emerald-500/30 bg-emerald-500/5' : 'border-white/5 bg-black/20'}`}>
-                            <span className={`text-[9px] font-bold uppercase tracking-wider ${inputMap.color === 'indigo' ? 'text-indigo-400' : 'text-emerald-400'}`}>{inputMap.label}</span>
-                            <span className="text-white/20">R$</span>
+                          <div key={inputMap.field} className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border transition-all text-xs ${editingIncome ? 'border-primary/30 bg-primary/5' : 'border-ink/10 bg-soft'}`}>
+                            <span className={`text-[9px] font-bold uppercase tracking-wider ${inputMap.color === 'indigo' ? 'text-brand-blue' : 'text-primary-dark'}`}>{inputMap.label}</span>
+                            <span className="text-ink/50">R$</span>
                             <input
                               type="number"
-                              className="bg-transparent text-xs text-white font-mono font-bold outline-none w-20 placeholder-white/10"
+                              className="bg-transparent text-xs text-ink tabular-nums font-bold outline-none w-20 placeholder-ink/50"
                               value={income[inputMap.field as keyof typeof income] || ''}
                               onChange={(e) => updateIncomeLocal(inputMap.field, Number(e.target.value))}
                               readOnly={!editingIncome}
                               onWheel={(e) => (e.target as HTMLElement).blur()}
                               placeholder="0"
                             />
-                            {!editingIncome && <Lock className="w-2.5 h-2.5 text-white/15" />}
+                            {!editingIncome && <Lock className="w-2.5 h-2.5 text-ink/50" />}
                           </div>
                         ))}
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-                      <div className="bg-white/5 backdrop-blur-xl rounded-2xl border border-white/10 overflow-hidden shadow-xl flex flex-col">
-                        <div className="px-4 py-3 border-b border-white/5 flex justify-between items-center bg-emerald-500/5">
-                          <span className="text-xs font-bold text-emerald-400 flex items-center gap-1.5">
-                            <TrendingDown className="w-3.5 h-3.5" /> Pagamento
+                    <div className="lg:hidden flex items-center gap-1 bg-soft p-1 rounded-2xl" role="tablist" aria-label="Lista de lançamentos">
+                      {([['pagamento', 'Pagamento'], ['vale', 'Adiantamento'], ['cartoes', 'Cartões']] as const).map(([tab, label]) => (
+                        <button
+                          key={tab}
+                          role="tab"
+                          aria-selected={lancamentosTab === tab}
+                          onClick={() => setLancamentosTab(tab)}
+                          className={`flex-1 py-2 rounded-xl text-xs font-semibold transition-all ${lancamentosTab === tab ? 'bg-primary text-ink shadow-sm' : 'text-ink/70'}`}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+
+                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 items-start">
+                      <div className={`${lancamentosTab === 'pagamento' ? 'flex' : 'hidden lg:flex'} flex-col bg-white rounded-3xl shadow-card overflow-hidden`}>
+                        <div className="px-4 py-3 border-b border-ink/10 flex justify-between items-center bg-primary/5">
+                          <span className="text-sm font-bold text-ink flex items-center gap-1.5">
+                            <TrendingDown className="w-4 h-4 text-primary-dark" /> Pagamento
                           </span>
-                          <button onClick={() => addItem('expense_pagamento')} className="p-1 text-white/40 hover:text-white hover:bg-white/10 rounded-lg transition-all">
+                          <button onClick={() => addItem('expense_pagamento')} className="p-1 text-ink/65 hover:text-ink hover:bg-ink/5 rounded-lg transition-all">
                             <Plus className="w-3.5 h-3.5" />
                           </button>
                         </div>
 
-                        <div className="divide-y divide-white/5 flex-1">
+                        <div className="divide-y divide-ink/5 flex-1">
                           {items.filter(i => i.type === 'expense_pagamento').map(item => {
                             const isEdit = editingItems[item.id];
 
                             return (
-                              <div key={item.id} className={`flex flex-col transition-all group ${isEdit ? 'bg-emerald-500/5' : 'hover:bg-white/3'} ${sentShares.some(s => s.source_item_id === item.id) ? 'border-l-2 border-indigo-500' : ''}`}>
+                              <div key={item.id} className={`flex flex-col transition-all group ${isEdit ? 'bg-primary/5' : 'hover:bg-ink/[0.03]'} ${sentShares.some(s => s.source_item_id === item.id) ? 'border-l-2 border-brand-blue' : ''}`}>
                                 {sentShares.filter(s => s.source_item_id === item.id).map(s => (
                                   <div key={s.id} className="flex items-center gap-2 px-3 pt-1.5 text-[9px] opacity-70">
-                                    <span className={`px-1 rounded-sm font-bold border ${s.status === 'accepted' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : s.status === 'rejected' ? 'bg-rose-500/10 text-rose-400 border-rose-500/20' : 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20'}`}>
+                                    <span className={`px-1 rounded-sm font-bold border ${s.status === 'accepted' ? 'bg-primary/10 text-primary-dark border-primary/20' : s.status === 'rejected' ? 'bg-rose-500/10 text-rose-700 border-rose-500/20' : 'bg-brand-blue/10 text-brand-blue border-brand-blue/20'}`}>
                                       {s.status === 'pending' ? 'AGUARDANDO' : s.status === 'accepted' ? 'ACEITO' : 'RECUSADO'}
                                     </span>
-                                    <span className="text-white/40 italic">Dividido com {s.target_email || s.to_user_id}</span>
-                                    <span className="text-white/40">Minha parte: <span className="text-emerald-400">{formatCurrency(Number(item.pagamento) - Number(s.share_value))}</span></span>
+                                    <span className="text-ink/65 italic">Dividido com {s.target_email || s.to_user_id}</span>
+                                    <span className="text-ink/65">Minha parte: <span className="text-primary-dark">{formatCurrency(Number(item.pagamento) - Number(s.share_value))}</span></span>
                                   </div>
                                 ))}
 
-                                <div className="flex items-center gap-1.5 px-3 py-2">
+                                <div className="relative flex flex-wrap sm:flex-nowrap items-center gap-2.5 px-4 py-3">
                                   <button
                                     onClick={() => toggleItemPaid(item)}
-                                    className={`px-1.5 py-0.5 rounded text-[10px] font-bold border transition-all shrink-0 flex items-center gap-0.5 cursor-pointer ${
+                                    className={`w-10 h-10 rounded-2xl transition-all shrink-0 flex items-center justify-center cursor-pointer ${
                                       item.is_paid
-                                        ? 'bg-emerald-500 text-white border-emerald-400 shadow-sm shadow-emerald-500/30'
-                                        : 'bg-white/5 text-white/40 border-white/10 hover:text-emerald-400 hover:border-emerald-500/30'
+                                        ? 'bg-primary text-ink'
+                                        : 'bg-sky-tile text-ink hover:bg-primary'
                                     }`}
                                     title={item.is_paid ? 'Pago' : 'Marcar como pago'}
                                   >
-                                    {item.is_paid && <Check className="w-2.5 h-2.5 stroke-[3]" />}
-                                    PG
+                                    {item.is_paid ? <Check className="w-5 h-5 stroke-[3]" /> : <Receipt className="w-5 h-5" />}
                                   </button>
 
-                                  <input
+                                  <div className="flex-1 min-w-[6rem]">
+<input
                                     type="text"
                                     value={item.name}
                                     onChange={(e) => updateItemLocal(item.id, 'name', e.target.value)}
                                     readOnly={!isEdit}
-                                    className={`flex-1 bg-transparent text-xs font-medium outline-none min-w-0 transition-colors ${
-                                      item.is_paid ? 'text-emerald-400 font-semibold line-through decoration-emerald-500/50' : 'text-white/80'
+                                    className={`w-full bg-transparent text-sm font-semibold outline-none min-w-0 transition-colors ${
+                                      item.is_paid ? 'text-primary-dark font-semibold line-through decoration-primary-dark/50' : 'text-ink/90'
                                     }`}
                                     placeholder="Descrição"
                                   />
-                                  <span className="text-white/30 text-[10px]">R$</span>
+<span className="block text-[11px] text-brand-blue-dark truncate">{[item.is_paid ? 'Pago' : 'A pagar', item.is_recurring ? 'Recorrente' : null].filter(Boolean).join(' · ')}</span>
+</div>
+                                  <span className="text-ink/65 text-[10px]">R$</span>
                                   <input
                                     type="number"
                                     value={item.pagamento || ''}
                                     onChange={(e) => updateItemLocal(item.id, 'pagamento', e.target.value)}
                                     readOnly={!isEdit}
-                                    className={`w-16 bg-transparent text-xs font-mono text-right outline-none ${
-                                      item.is_paid ? 'text-emerald-400 font-bold' : 'text-emerald-400'
+                                    className={`w-20 bg-transparent text-sm font-semibold tabular-nums text-right outline-none ${
+                                      item.is_paid ? 'text-primary-dark font-bold' : 'text-primary-dark'
                                     }`}
                                     placeholder="0"
                                   />
 
-                                  <div className="flex gap-1 items-center bg-black/40 px-1.5 py-0.5 rounded-lg border border-white/5 shadow-xl shrink-0 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-all">
-                                    <button onClick={() => toggleRecurring(item)} className={`p-1 rounded transition-all ${item.is_recurring ? 'text-emerald-400 bg-emerald-500/10' : 'text-white/20 hover:text-white'}`} title="Recorrente">
-                                      <Repeat className="w-3 h-3" />
+                                  <div className={`flex w-full justify-end gap-1 items-center ${isEdit ? 'sm:w-auto' : 'sm:absolute sm:w-auto sm:right-3 sm:top-1/2 sm:-translate-y-1/2 sm:bg-white sm:shadow-card sm:rounded-xl sm:px-1 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100'} transition-all`}>
+                                    <button onClick={() => toggleRecurring(item)} className={`p-1 rounded transition-all ${item.is_recurring ? 'text-primary-dark bg-primary/10' : 'text-ink/50 hover:text-ink'}`} title="Recorrente">
+                                      <Repeat className="w-4 h-4" />
                                     </button>
                                     <button 
                                       onClick={() => { setShareModal({ item }); setShareValue(String((Number(item.pagamento) || 0) / 2)); }} 
-                                      className={`p-1 transition-all rounded ${isShared(item.id, sentShares) ? 'text-emerald-400' : 'text-white/20 hover:text-indigo-400'}`}
+                                      className={`p-1 transition-all rounded ${isShared(item.id, sentShares) ? 'text-primary-dark' : 'text-ink/50 hover:text-brand-blue'}`}
                                       title={isShared(item.id, sentShares) ? "Já compartilhado" : "Compartilhar"}
                                     >
-                                      <Share2 className="w-3 h-3" />
+                                      <Share2 className="w-4 h-4" />
                                     </button>
                                     {isEdit ? (
-                                      <button onClick={() => saveItem(item)} className="p-1 bg-emerald-500/20 text-emerald-400 rounded">
-                                        <Check className="w-3 h-3" />
+                                      <button onClick={() => saveItem(item)} className="p-1 bg-primary/20 text-primary-dark rounded">
+                                        <Check className="w-4 h-4" />
                                       </button>
                                     ) : (
-                                      <button onClick={() => setEditingItems(p => ({ ...p, [item.id]: true }))} className="p-1 text-white/20 hover:text-white rounded transition-all">
-                                        <Edit2 className="w-3 h-3" />
+                                      <button onClick={() => setEditingItems(p => ({ ...p, [item.id]: true }))} className="p-1 text-ink/50 hover:text-ink rounded transition-all">
+                                        <Edit2 className="w-4 h-4" />
                                       </button>
                                     )}
-                                    <button onClick={() => removeItem(item.id)} className="p-1 text-white/20 hover:text-rose-400 rounded transition-all">
-                                      <Trash2 className="w-3 h-3" />
+                                    <button onClick={() => removeItem(item.id)} className="p-1 text-ink/50 hover:text-rose-700 rounded transition-all">
+                                      <Trash2 className="w-4 h-4" />
                                     </button>
                                   </div>
                                 </div>
@@ -2092,100 +2540,102 @@ export default function App() {
                           })}
 
                           {items.filter(i => i.type === 'expense_pagamento').length === 0 && (
-                            <div className="px-3 py-4 text-center text-white/20 text-xs">Nenhuma conta</div>
+                            <div className="px-3 py-4 text-center text-ink/50 text-xs">Nenhuma conta</div>
                           )}
                         </div>
 
-                        <div className="px-4 py-2.5 border-t border-white/5 bg-black/20 flex justify-between items-center">
-                          <span className="text-[10px] font-bold text-white/30 uppercase tracking-wider">Total</span>
-                          <span className="text-sm font-mono font-bold text-emerald-400">{formatCurrency(items.filter(i => i.type === 'expense_pagamento').reduce((a, c) => a + (Number(c.pagamento) || 0), 0))}</span>
+                        <div className="px-4 py-2.5 border-t border-ink/10 bg-soft flex justify-between items-center">
+                          <span className="text-[10px] font-bold text-ink/65 uppercase tracking-wider">Total</span>
+                          <span className="text-sm tabular-nums font-bold text-primary-dark">{formatCurrency(items.filter(i => i.type === 'expense_pagamento').reduce((a, c) => a + (Number(c.pagamento) || 0), 0))}</span>
                         </div>
                       </div>
 
-                      <div className="bg-white/5 backdrop-blur-xl rounded-2xl border border-white/10 overflow-hidden shadow-xl flex flex-col">
-                        <div className="px-4 py-3 border-b border-white/5 flex justify-between items-center bg-indigo-500/5">
-                          <span className="text-xs font-bold text-indigo-400 flex items-center gap-1.5">
+                      <div className={`${lancamentosTab === 'vale' ? 'flex' : 'hidden lg:flex'} flex-col bg-white rounded-3xl shadow-card overflow-hidden`}>
+                        <div className="px-4 py-3 border-b border-ink/10 flex justify-between items-center bg-brand-blue/5">
+                          <span className="text-xs font-bold text-brand-blue flex items-center gap-1.5">
                             <TrendingDown className="w-3.5 h-3.5" /> Adiantamento
                           </span>
-                          <button onClick={() => addItem('expense_vale')} className="p-1 text-white/40 hover:text-white hover:bg-white/10 rounded-lg transition-all">
+                          <button onClick={() => addItem('expense_vale')} className="p-1 text-ink/65 hover:text-ink hover:bg-ink/5 rounded-lg transition-all">
                             <Plus className="w-3.5 h-3.5" />
                           </button>
                         </div>
 
-                        <div className="divide-y divide-white/5 flex-1">
+                        <div className="divide-y divide-ink/5 flex-1">
                           {items.filter(i => i.type === 'expense_vale').map(item => {
                             const isEdit = editingItems[item.id];
 
                             return (
-                              <div key={item.id} className={`flex flex-col transition-all group ${isEdit ? 'bg-indigo-500/5' : 'hover:bg-white/3'} ${sentShares.some(s => s.source_item_id === item.id) ? 'border-l-2 border-indigo-500' : ''}`}>
+                              <div key={item.id} className={`flex flex-col transition-all group ${isEdit ? 'bg-brand-blue/5' : 'hover:bg-ink/[0.03]'} ${sentShares.some(s => s.source_item_id === item.id) ? 'border-l-2 border-brand-blue' : ''}`}>
                                 {sentShares.filter(s => s.source_item_id === item.id).map(s => (
                                   <div key={s.id} className="flex items-center gap-2 px-3 pt-1.5 text-[9px] opacity-70">
-                                    <span className={`px-1 rounded-sm font-bold border ${s.status === 'accepted' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : s.status === 'rejected' ? 'bg-rose-500/10 text-rose-400 border-rose-500/20' : 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20'}`}>
+                                    <span className={`px-1 rounded-sm font-bold border ${s.status === 'accepted' ? 'bg-primary/10 text-primary-dark border-primary/20' : s.status === 'rejected' ? 'bg-rose-500/10 text-rose-700 border-rose-500/20' : 'bg-brand-blue/10 text-brand-blue border-brand-blue/20'}`}>
                                       {s.status === 'pending' ? 'AGUARDANDO' : s.status === 'accepted' ? 'ACEITO' : 'RECUSADO'}
                                     </span>
-                                    <span className="text-white/40 italic">Dividido com {s.target_email || s.to_user_id}</span>
-                                    <span className="text-white/40">Minha parte: <span className="text-indigo-400">{formatCurrency(Number(item.vale) - Number(s.share_value))}</span></span>
+                                    <span className="text-ink/65 italic">Dividido com {s.target_email || s.to_user_id}</span>
+                                    <span className="text-ink/65">Minha parte: <span className="text-brand-blue">{formatCurrency(Number(item.vale) - Number(s.share_value))}</span></span>
                                   </div>
                                 ))}
 
-                                <div className="flex items-center gap-1.5 px-3 py-2">
+                                <div className="relative flex flex-wrap sm:flex-nowrap items-center gap-2.5 px-4 py-3">
                                   <button
                                     onClick={() => toggleItemPaid(item)}
-                                    className={`px-1.5 py-0.5 rounded text-[10px] font-bold border transition-all shrink-0 flex items-center gap-0.5 cursor-pointer ${
+                                    className={`w-10 h-10 rounded-2xl transition-all shrink-0 flex items-center justify-center cursor-pointer ${
                                       item.is_paid
-                                        ? 'bg-emerald-500 text-white border-emerald-400 shadow-sm shadow-emerald-500/30'
-                                        : 'bg-white/5 text-white/40 border-white/10 hover:text-emerald-400 hover:border-emerald-500/30'
+                                        ? 'bg-primary text-ink'
+                                        : 'bg-sky-tile text-ink hover:bg-primary'
                                     }`}
                                     title={item.is_paid ? 'Pago' : 'Marcar como pago'}
                                   >
-                                    {item.is_paid && <Check className="w-2.5 h-2.5 stroke-[3]" />}
-                                    PG
+                                    {item.is_paid ? <Check className="w-5 h-5 stroke-[3]" /> : <Receipt className="w-5 h-5" />}
                                   </button>
 
-                                  <input
+                                  <div className="flex-1 min-w-[6rem]">
+<input
                                     type="text"
                                     value={item.name}
                                     onChange={(e) => updateItemLocal(item.id, 'name', e.target.value)}
                                     readOnly={!isEdit}
-                                    className={`flex-1 bg-transparent text-xs font-medium outline-none min-w-0 transition-colors ${
-                                      item.is_paid ? 'text-emerald-400 font-semibold line-through decoration-emerald-500/50' : 'text-white/80'
+                                    className={`w-full bg-transparent text-sm font-semibold outline-none min-w-0 transition-colors ${
+                                      item.is_paid ? 'text-primary-dark font-semibold line-through decoration-primary-dark/50' : 'text-ink/90'
                                     }`}
                                     placeholder="Descrição"
                                   />
-                                  <span className="text-white/30 text-[10px]">R$</span>
+<span className="block text-[11px] text-brand-blue-dark truncate">{[item.is_paid ? 'Pago' : 'A pagar', item.is_recurring ? 'Recorrente' : null].filter(Boolean).join(' · ')}</span>
+</div>
+                                  <span className="text-ink/65 text-[10px]">R$</span>
                                   <input
                                     type="number"
                                     value={item.vale || ''}
                                     onChange={(e) => updateItemLocal(item.id, 'vale', e.target.value)}
                                     readOnly={!isEdit}
-                                    className={`w-16 bg-transparent text-xs font-mono text-right outline-none ${
-                                      item.is_paid ? 'text-emerald-400 font-bold' : 'text-indigo-400'
+                                    className={`w-20 bg-transparent text-sm font-semibold tabular-nums text-right outline-none ${
+                                      item.is_paid ? 'text-primary-dark font-bold' : 'text-brand-blue'
                                     }`}
                                     placeholder="0"
                                   />
 
-                                  <div className="flex gap-1 items-center bg-black/40 px-1.5 py-0.5 rounded-lg border border-white/5 shadow-xl shrink-0 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-all">
-                                    <button onClick={() => toggleRecurring(item)} className={`p-1 rounded transition-all ${item.is_recurring ? 'text-indigo-400 bg-indigo-500/10' : 'text-white/20 hover:text-white'}`} title="Recorrente">
-                                      <Repeat className="w-3 h-3" />
+                                  <div className={`flex w-full justify-end gap-1 items-center ${isEdit ? 'sm:w-auto' : 'sm:absolute sm:w-auto sm:right-3 sm:top-1/2 sm:-translate-y-1/2 sm:bg-white sm:shadow-card sm:rounded-xl sm:px-1 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100'} transition-all`}>
+                                    <button onClick={() => toggleRecurring(item)} className={`p-1 rounded transition-all ${item.is_recurring ? 'text-brand-blue bg-brand-blue/10' : 'text-ink/50 hover:text-ink'}`} title="Recorrente">
+                                      <Repeat className="w-4 h-4" />
                                     </button>
                                     <button 
                                       onClick={() => { setShareModal({ item }); setShareValue(String((Number(item.vale) || 0) / 2)); }} 
-                                      className={`p-1 transition-all rounded ${isShared(item.id, sentShares) ? 'text-emerald-400' : 'text-white/20 hover:text-indigo-400'}`}
+                                      className={`p-1 transition-all rounded ${isShared(item.id, sentShares) ? 'text-primary-dark' : 'text-ink/50 hover:text-brand-blue'}`}
                                       title={isShared(item.id, sentShares) ? "Já compartilhado" : "Compartilhar"}
                                     >
-                                      <Share2 className="w-3 h-3" />
+                                      <Share2 className="w-4 h-4" />
                                     </button>
                                     {isEdit ? (
-                                      <button onClick={() => saveItem(item)} className="p-1 bg-emerald-500/20 text-emerald-400 rounded">
-                                        <Check className="w-3 h-3" />
+                                      <button onClick={() => saveItem(item)} className="p-1 bg-primary/20 text-primary-dark rounded">
+                                        <Check className="w-4 h-4" />
                                       </button>
                                     ) : (
-                                      <button onClick={() => setEditingItems(p => ({ ...p, [item.id]: true }))} className="p-1 text-white/20 hover:text-white rounded transition-all">
-                                        <Edit2 className="w-3 h-3" />
+                                      <button onClick={() => setEditingItems(p => ({ ...p, [item.id]: true }))} className="p-1 text-ink/50 hover:text-ink rounded transition-all">
+                                        <Edit2 className="w-4 h-4" />
                                       </button>
                                     )}
-                                    <button onClick={() => removeItem(item.id)} className="p-1 text-white/20 hover:text-rose-400 rounded transition-all">
-                                      <Trash2 className="w-3 h-3" />
+                                    <button onClick={() => removeItem(item.id)} className="p-1 text-ink/50 hover:text-rose-700 rounded transition-all">
+                                      <Trash2 className="w-4 h-4" />
                                     </button>
                                   </div>
                                 </div>
@@ -2194,22 +2644,22 @@ export default function App() {
                           })}
 
                           {items.filter(i => i.type === 'expense_vale').length === 0 && (
-                            <div className="px-3 py-4 text-center text-white/20 text-xs">Nenhuma conta</div>
+                            <div className="px-3 py-4 text-center text-ink/50 text-xs">Nenhuma conta</div>
                           )}
                         </div>
 
-                        <div className="px-4 py-2.5 border-t border-white/5 bg-black/20 flex justify-between items-center">
-                          <span className="text-[10px] font-bold text-white/30 uppercase tracking-wider">Total</span>
-                          <span className="text-sm font-mono font-bold text-indigo-400">{formatCurrency(items.filter(i => i.type === 'expense_vale').reduce((a, c) => a + (Number(c.vale) || 0), 0))}</span>
+                        <div className="px-4 py-2.5 border-t border-ink/10 bg-soft flex justify-between items-center">
+                          <span className="text-[10px] font-bold text-ink/65 uppercase tracking-wider">Total</span>
+                          <span className="text-sm tabular-nums font-bold text-brand-blue">{formatCurrency(items.filter(i => i.type === 'expense_vale').reduce((a, c) => a + (Number(c.vale) || 0), 0))}</span>
                         </div>
                       </div>
 
-                      <div className="bg-white/5 backdrop-blur-xl rounded-2xl border border-white/10 overflow-hidden shadow-xl flex flex-col">
-                        <div className="px-4 py-3 border-b border-white/5 flex justify-between items-center bg-white/3">
-                          <span className="text-xs font-bold text-white/60 flex items-center gap-1.5">
-                            <CreditCard className="w-3.5 h-3.5" /> Cartões
+                      <div className={`${lancamentosTab === 'cartoes' ? 'flex' : 'hidden lg:flex'} flex-col bg-white rounded-3xl shadow-card overflow-hidden`}>
+                        <div className="px-4 py-3 border-b border-ink/10 flex justify-between items-center bg-ink/[0.03]">
+                          <span className="text-sm font-bold text-ink flex items-center gap-1.5">
+                            <CreditCard className="w-4 h-4 text-brand-blue" /> Cartões
                           </span>
-                          <button onClick={() => setCardModalOpen(true)} className="px-3 py-1.5 text-[10px] font-bold text-white bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-400 rounded-lg transition-all flex items-center gap-1.5">
+                          <button onClick={() => setCardModalOpen(true)} className="px-3 py-1.5 text-[10px] font-bold text-ink bg-brand-blue/20 hover:bg-brand-blue/30 text-brand-blue rounded-lg transition-all flex items-center gap-1.5">
                             Gerenciar Cartões
                           </button>
                         </div>
@@ -2227,66 +2677,69 @@ export default function App() {
                             const displayTotal = baseVal + expsSum;
 
                             return (
-                              <div key={item.id} className="border-b border-white/5 last:border-0">
-                                <div className={`flex flex-col transition-all group ${isEdit ? 'bg-white/5' : 'hover:bg-white/3'} ${sentShares.some(s => s.source_item_id === item.id) ? 'border-l-2 border-indigo-500' : ''}`}>
+                              <div key={item.id} className="border-b border-ink/10 last:border-0">
+                                <div className={`flex flex-col transition-all group ${isEdit ? 'bg-soft' : 'hover:bg-ink/[0.03]'} ${sentShares.some(s => s.source_item_id === item.id) ? 'border-l-2 border-brand-blue' : ''}`}>
                                   {sentShares.filter(s => s.source_item_id === item.id).map(s => (
                                     <div key={s.id} className="flex items-center gap-2 px-3 pt-1.5 text-[9px] opacity-70">
-                                      <span className={`px-1 rounded-sm font-bold border ${s.status === 'accepted' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : s.status === 'rejected' ? 'bg-rose-500/10 text-rose-400 border-rose-500/20' : 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20'}`}>
+                                      <span className={`px-1 rounded-sm font-bold border ${s.status === 'accepted' ? 'bg-primary/10 text-primary-dark border-primary/20' : s.status === 'rejected' ? 'bg-rose-500/10 text-rose-700 border-rose-500/20' : 'bg-brand-blue/10 text-brand-blue border-brand-blue/20'}`}>
                                         {s.status === 'pending' ? 'AGUARDANDO' : s.status === 'accepted' ? 'ACEITO' : 'RECUSADO'}
                                       </span>
-                                      <span className="text-white/40 italic">Dividido com {s.target_email || s.to_user_id}</span>
-                                      <span className="text-white/40">
+                                      <span className="text-ink/65 italic">Dividido com {s.target_email || s.to_user_id}</span>
+                                      <span className="text-ink/65">
                                         Minha parte:{' '}
-                                        <span className={isPagamento ? 'text-emerald-400' : 'text-indigo-400'}>
+                                        <span className={isPagamento ? 'text-primary-dark' : 'text-brand-blue'}>
                                           {formatCurrency(displayTotal - Number(s.share_value))}
                                         </span>
                                       </span>
                                     </div>
                                   ))}
 
-                                  <div className="flex items-center gap-1.5 px-3 py-2.5 transition-all">
-                                    <button onClick={() => toggleExpandCard(item.id)} className={`p-0.5 rounded transition-all shrink-0 ${isExpanded ? 'text-white/60' : 'text-white/20 hover:text-white/60'}`}>
+                                  <div className="relative flex flex-wrap sm:flex-nowrap items-center gap-2 px-3 py-3 transition-all">
+                                    <button onClick={() => toggleExpandCard(item.id)} className={`p-0.5 rounded transition-all shrink-0 ${isExpanded ? 'text-ink/70' : 'text-ink/50 hover:text-ink/70'}`}>
                                       <ChevronRight className={`w-3 h-3 transition-transform duration-200 ${isExpanded ? 'rotate-90' : ''}`} />
                                     </button>
 
                                     <button
                                       onClick={() => toggleItemPaid(item)}
-                                      className={`px-1.5 py-0.5 rounded text-[10px] font-bold border transition-all shrink-0 flex items-center gap-0.5 cursor-pointer ${
+                                      className={`w-10 h-10 rounded-2xl transition-all shrink-0 flex items-center justify-center cursor-pointer ${
                                         item.is_paid
-                                          ? 'bg-emerald-500 text-white border-emerald-400 shadow-sm shadow-emerald-500/30'
-                                          : 'bg-white/5 text-white/40 border-white/10 hover:text-emerald-400 hover:border-emerald-500/30'
+                                          ? 'bg-primary text-ink'
+                                          : 'bg-sky-tile text-ink hover:bg-primary'
                                       }`}
                                       title={item.is_paid ? 'Pago' : 'Marcar como pago'}
                                     >
-                                      {item.is_paid && <Check className="w-2.5 h-2.5 stroke-[3]" />}
-                                      PG
+                                      {item.is_paid ? <Check className="w-5 h-5 stroke-[3]" /> : <CreditCard className="w-5 h-5" />}
                                     </button>
 
-                                    <input
+                                    <div className="flex-1 min-w-[6rem]">
+<input
                                       type="text"
                                       value={item.name}
                                       onChange={(e) => updateItemLocal(item.id, 'name', e.target.value)}
                                       readOnly={!isEdit}
-                                      className={`flex-1 bg-transparent text-xs font-medium outline-none min-w-0 transition-colors ${
-                                        item.is_paid ? 'text-emerald-400 font-semibold line-through decoration-emerald-500/50' : 'text-white/80'
+                                      className={`w-full bg-transparent text-sm font-semibold outline-none min-w-0 transition-colors ${
+                                        item.is_paid ? 'text-primary-dark font-semibold line-through decoration-primary-dark/50' : 'text-ink/90'
                                       }`}
                                       placeholder="Nome do cartão"
                                     />
+<span className="block text-[11px] text-brand-blue-dark truncate">{[item.is_paid ? 'Pago' : item.due_day ? `Vence dia ${item.due_day}` : 'A pagar', item.is_recurring ? 'Recorrente' : null].filter(Boolean).join(' · ')}</span>
+</div>
 
                                     <select
                                       value={isPagamento ? 'pagamento' : 'vale'}
                                       onChange={(e) => updateCardSource(item, e.target.value as 'pagamento' | 'vale')}
-                                      disabled={!isEdit}
-                                      className={`text-[10px] font-bold outline-none appearance-none cursor-pointer rounded px-1.5 py-0.5 border transition-all ${isPagamento ? 'bg-emerald-500/15 border-emerald-500/20 text-emerald-400' : 'bg-indigo-500/15 border-indigo-500/20 text-indigo-400'}`}
+                                      title="Contabilizar em"
+                                      aria-label={`Contabilizar ${item.name} em`}
+                                      className={`order-5 sm:order-none text-[10px] font-bold outline-none appearance-none cursor-pointer rounded px-1.5 py-0.5 border transition-all ${isPagamento ? 'bg-primary/15 border-primary/20 text-primary-dark' : 'bg-brand-blue/15 border-brand-blue/20 text-brand-blue'}`}
                                     >
-                                      <option value="pagamento" className="bg-[#0f1115]">Pgto</option>
-                                      <option value="vale" className="bg-[#0f1115]">Adto</option>
+                                      <option value="pagamento" className="bg-white">Pgto</option>
+                                      <option value="vale" className="bg-white">Adto</option>
                                     </select>
 
-                                    <span className="text-white/30 text-[10px]">R$</span>
+                                    <span className="text-ink/65 text-[10px]">R$</span>
 
                                     {hasExpenses ? (
-                                      <span className={`w-20 text-xs font-mono font-bold text-right ${item.is_paid ? 'text-emerald-400' : isPagamento ? 'text-emerald-400' : 'text-indigo-400'}`}>
+                                      <span className={`w-20 text-sm font-semibold tabular-nums text-right ${item.is_paid ? 'text-primary-dark' : isPagamento ? 'text-primary-dark' : 'text-brand-blue'}`}>
                                         {formatCurrency(displayTotal).replace('R$\u00a0', '')}
                                       </span>
                                     ) : (
@@ -2295,54 +2748,53 @@ export default function App() {
                                         value={(item[amountField as keyof ItemRecord] as number) || ''}
                                         onChange={(e) => updateItemLocal(item.id, amountField, e.target.value)}
                                         readOnly={!isEdit}
-                                        className={`w-16 bg-transparent text-xs font-mono text-right outline-none ${item.is_paid ? 'text-emerald-400 font-bold' : isPagamento ? 'text-emerald-400' : 'text-indigo-400'}`}
+                                        className={`w-20 bg-transparent text-sm font-semibold tabular-nums text-right outline-none ${item.is_paid ? 'text-primary-dark font-bold' : isPagamento ? 'text-primary-dark' : 'text-brand-blue'}`}
                                       />
                                     )}
 
-                                    <div className="flex gap-0.5 shrink-0 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-all">
-                                      <button onClick={() => toggleRecurring(item)} className={`p-1 rounded ${item.is_recurring ? 'text-emerald-400 bg-emerald-500/10' : 'text-white/20'}`} title="Recorrente">
-                                        <Repeat className="w-3 h-3" />
+                                    <div className={`order-6 sm:order-none flex flex-1 sm:flex-none justify-end gap-1 items-center ${isEdit ? 'sm:w-auto' : 'sm:absolute sm:w-auto sm:right-3 sm:top-1/2 sm:-translate-y-1/2 sm:bg-white sm:shadow-card sm:rounded-xl sm:px-1 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100'} transition-all`}>
+                                      <button onClick={() => toggleRecurring(item)} className={`p-1 rounded ${item.is_recurring ? 'text-primary-dark bg-primary/10' : 'text-ink/50'}`} title="Recorrente">
+                                        <Repeat className="w-4 h-4" />
                                       </button>
                                       <button 
                                         onClick={() => { setShareModal({ item }); setShareValue(String(displayTotal / 2)); }} 
-                                        className={`p-1 transition-all rounded ${isShared(item.id, sentShares) ? 'text-emerald-400' : 'text-white/20 hover:text-indigo-400'}`}
+                                        className={`p-1 transition-all rounded ${isShared(item.id, sentShares) ? 'text-primary-dark' : 'text-ink/50 hover:text-brand-blue'}`}
                                         title={isShared(item.id, sentShares) ? "Já compartilhado" : "Compartilhar"}
                                       >
-                                        <Share2 className="w-3 h-3" />
+                                        <Share2 className="w-4 h-4" />
                                       </button>
                                       {isEdit ? (
-                                        <button onClick={() => saveItem(item)} className="p-1 bg-emerald-500/20 text-emerald-400 rounded">
+                                        <button onClick={() => saveItem(item)} className="p-1 bg-primary/20 text-primary-dark rounded">
                                           <Check className="w-3 h-3" />
                                         </button>
                                       ) : (
-                                        <button onClick={() => setEditingItems(p => ({ ...p, [item.id]: true }))} className="p-1 text-white/20 hover:text-white">
-                                          <Edit2 className="w-3 h-3" />
+                                        <button onClick={() => setEditingItems(p => ({ ...p, [item.id]: true }))} className="p-1 text-ink/50 hover:text-ink">
+                                          <Edit2 className="w-4 h-4" />
                                         </button>
                                       )}
-                                      <button onClick={() => removeItem(item.id)} className="p-1 text-white/20 hover:text-rose-400">
-                                        <Trash2 className="w-3 h-3" />
+                                      <button onClick={() => removeItem(item.id)} className="p-1 text-ink/50 hover:text-rose-700">
+                                        <Trash2 className="w-4 h-4" />
                                       </button>
                                     </div>
                                   </div>
 
                                   {isExpanded && (
-                                    <div className="bg-black/30 border-t border-white/5 divide-y divide-white/5">
+                                    <div className="bg-soft border-t border-ink/10 divide-y divide-ink/5">
                                       {expenses.map(exp => {
                                         const isExpEdit = editingCardExpenses[exp.id];
 
                                         return (
-                                          <div key={exp.id} className="flex items-center gap-1.5 pl-6 pr-3 py-2 group">
+                                          <div key={exp.id} className="flex flex-wrap items-center gap-1.5 pl-6 pr-3 py-2 group">
                                             <button
                                               onClick={() => toggleCardExpensePaid(item.id, exp)}
-                                              className={`px-1 py-0.5 rounded text-[9px] font-bold border transition-all shrink-0 flex items-center gap-0.5 cursor-pointer ${
+                                              className={`w-8 h-8 rounded-xl transition-all shrink-0 flex items-center justify-center cursor-pointer ${
                                                 exp.is_paid
-                                                  ? 'bg-emerald-500 text-white border-emerald-400 shadow-sm shadow-emerald-500/30'
-                                                  : 'bg-white/5 text-white/30 border-white/10 hover:text-emerald-400 hover:border-emerald-500/30'
+                                                  ? 'bg-primary text-ink'
+                                                  : 'bg-sky-tile text-ink hover:bg-primary'
                                               }`}
                                               title={exp.is_paid ? 'Pago' : 'Marcar como pago'}
                                             >
-                                              {exp.is_paid && <Check className="w-2 h-2 stroke-[3]" />}
-                                              PG
+                                              {exp.is_paid ? <Check className="w-4 h-4 stroke-[3]" /> : <Receipt className="w-4 h-4" />}
                                             </button>
 
                                             <input
@@ -2350,52 +2802,80 @@ export default function App() {
                                               value={exp.name}
                                               onChange={(e) => updateCardExpenseLocal(item.id, exp.id, 'name', e.target.value)}
                                               readOnly={!isExpEdit}
-                                              className={`flex-1 bg-transparent text-[11px] outline-none transition-colors ${
-                                                exp.is_paid ? 'text-emerald-400 font-semibold line-through decoration-emerald-500/50' : 'text-white/70'
+                                              className={`flex-1 bg-transparent text-xs outline-none transition-colors ${
+                                                exp.is_paid ? 'text-primary-dark font-semibold line-through decoration-primary-dark/50' : 'text-ink/80'
                                               }`}
                                               placeholder="Compra"
                                             />
-                                            <span className="text-white/20 text-[10px]">R$</span>
+                                            <span className="text-ink/50 text-[10px]">R$</span>
                                             <input
                                               type="number"
                                               value={exp.value || ''}
                                               onChange={(e) => updateCardExpenseLocal(item.id, exp.id, 'value', e.target.value)}
                                               readOnly={!isExpEdit}
-                                              className={`w-16 bg-transparent text-[11px] font-mono text-right outline-none ${
-                                                exp.is_paid ? 'text-emerald-400 font-bold' : 'text-white/90'
+                                              className={`w-20 bg-transparent text-xs font-semibold tabular-nums text-right outline-none ${
+                                                exp.is_paid ? 'text-primary-dark font-bold' : 'text-ink/90'
                                               }`}
                                             />
                                             <div className="flex gap-0.5 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-all">
-                                              <button onClick={() => toggleRecurringCardExpense(item.id, exp)} className={`p-1 rounded ${exp.is_recurring ? 'text-emerald-400 bg-emerald-500/10' : 'text-white/20'}`} title="Recorrente">
+                                              <button onClick={() => toggleRecurringCardExpense(item.id, exp)} className={`p-1 rounded ${exp.is_recurring ? 'text-primary-dark bg-primary/10' : 'text-ink/50'}`} title="Recorrente">
                                                 <Repeat className="w-2.5 h-2.5" />
                                               </button>
                                               <button 
                                                 onClick={() => { setShareModal({ item: exp, isCardExp: true }); setShareValue(String((Number(exp.value) || 0) / 2)); }} 
-                                                className={`p-1 transition-all rounded ${isShared(exp.id, sentShares) ? 'text-emerald-400' : 'text-white/20 hover:text-indigo-400'}`}
+                                                className={`p-1 transition-all rounded ${isShared(exp.id, sentShares) ? 'text-primary-dark' : 'text-ink/50 hover:text-brand-blue'}`}
                                                 title={isShared(exp.id, sentShares) ? "Já compartilhado" : "Compartilhar"}
                                               >
                                                 <Share2 className="w-2.5 h-2.5" />
                                               </button>
 
                                               {isExpEdit ? (
-                                                <button onClick={() => saveCardExpense(item, exp)} className="p-1 bg-emerald-500/20 text-emerald-400 rounded">
+                                                <button onClick={() => saveCardExpense(item, exp)} className="p-1 bg-primary/20 text-primary-dark rounded">
                                                   <Check className="w-2.5 h-2.5" />
                                                 </button>
                                               ) : (
-                                                <button onClick={() => setEditingCardExpenses(p => ({ ...p, [exp.id]: true }))} className="p-1 text-white/20">
+                                                <button onClick={() => setEditingCardExpenses(p => ({ ...p, [exp.id]: true }))} className="p-1 text-ink/50">
                                                   <Edit2 className="w-2.5 h-2.5" />
                                                 </button>
                                               )}
 
-                                              <button onClick={() => removeCardExpense(item, exp.id)} className="p-1 text-white/20 hover:text-rose-400">
+                                              <button onClick={() => removeCardExpense(item, exp.id)} className="p-1 text-ink/50 hover:text-rose-700">
                                                 <Trash2 className="w-2.5 h-2.5" />
                                               </button>
                                             </div>
+                                            {isExpEdit && (
+                                              <div className="w-full flex flex-wrap items-center gap-3 pt-1 text-[10px] text-ink/70">
+                                                <label className="flex items-center gap-1.5">
+                                                  Data da compra
+                                                  <input
+                                                    type="date"
+                                                    value={exp.purchase_date || ''}
+                                                    onChange={(e) => updateCardExpenseLocal(item.id, exp.id, 'purchase_date', e.target.value)}
+                                                    className="bg-soft border border-ink/10 rounded px-1.5 py-1 text-ink/90 outline-none "
+                                                  />
+                                                </label>
+                                                {!exp.installment_group_id && !exp.is_recurring && (
+                                                  <label className="flex items-center gap-1.5">
+                                                    Parcelas
+                                                    <input
+                                                      type="number"
+                                                      min={1}
+                                                      max={48}
+                                                      placeholder="1"
+                                                      value={exp.installments_input ?? ''}
+                                                      onChange={(e) => updateCardExpenseLocal(item.id, exp.id, 'installments_input', e.target.value)}
+                                                      className="w-12 bg-soft border border-ink/10 rounded px-1.5 py-1 text-ink/90 outline-none"
+                                                    />
+                                                    <span className="text-ink/65">o valor é o total da compra</span>
+                                                  </label>
+                                                )}
+                                              </div>
+                                            )}
                                           </div>
                                         );
                                       })}
 
-                                      <button onClick={() => addCardExpense(item)} className="px-8 py-2 text-[10px] text-white/30 hover:text-white transition-all flex items-center gap-1">
+                                      <button onClick={() => addCardExpense(item)} className="px-8 py-2 text-[10px] text-ink/65 hover:text-ink transition-all flex items-center gap-1">
                                         <Plus className="w-3 h-3" /> Adicionar compra
                                       </button>
                                     </div>
@@ -2406,13 +2886,15 @@ export default function App() {
                           })}
 
                           {items.filter(i => i.type.startsWith('card_')).length === 0 && (
-                            <div className="px-3 py-4 text-center text-white/20 text-xs">Nenhum cartão</div>
+                            <button onClick={() => setCardModalOpen(true)} className="w-full px-3 py-4 text-center text-brand-blue hover:text-brand-blue text-xs font-bold flex items-center justify-center gap-1.5 transition-all">
+                              <Plus className="w-3.5 h-3.5" /> Adicionar primeiro cartão
+                            </button>
                           )}
                         </div>
 
-                        <div className="px-4 py-2.5 border-t border-white/5 bg-black/20 flex justify-between items-center">
-                          <span className="text-[10px] font-bold text-white/30 uppercase tracking-wider">Total</span>
-                          <span className="text-sm font-mono font-bold text-white/70">
+                        <div className="px-4 py-2.5 border-t border-ink/10 bg-soft flex justify-between items-center">
+                          <span className="text-[10px] font-bold text-ink/65 uppercase tracking-wider">Total</span>
+                          <span className="text-sm tabular-nums font-bold text-ink/80">
                             {formatCurrency(
                               items
                                 .filter(i => i.type.startsWith('card_'))
@@ -2434,30 +2916,30 @@ export default function App() {
         )}
 
         {activeView === 'settings' && (
-          <div className="flex-1 overflow-y-auto p-3 lg:p-6 pb-20 lg:pb-6 relative z-10 custom-scrollbar">
+          <div className="p-4 lg:p-8 pb-24 lg:pb-8">
             <div className="max-w-2xl mx-auto space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
               
               {/* PWA App Installation Section */}
               <div className="flex items-center gap-3 mb-2">
-                <div className="p-2.5 bg-emerald-500/10 border border-emerald-500/20 rounded-xl">
-                  <Smartphone className="w-5 h-5 text-emerald-400" />
+                <div className="p-2.5 bg-primary/10 border border-primary/20 rounded-xl">
+                  <Smartphone className="w-5 h-5 text-primary-dark" />
                 </div>
                 <div>
                   <h2 className="font-extrabold text-lg">Aplicativo ZimFinance</h2>
-                  <p className="text-white/40 text-xs">Instale o app diretamente no seu dispositivo</p>
+                  <p className="text-ink/65 text-xs">Instale o app diretamente no seu dispositivo</p>
                 </div>
               </div>
 
-              <div className="bg-white/3 border border-white/8 rounded-2xl p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div className="bg-ink/[0.03] border border-ink/10 rounded-2xl p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
-                  <h3 className="font-bold text-sm text-white">Instalar App no Dispositivo</h3>
-                  <p className="text-xs text-white/40 mt-1 max-w-md">
+                  <h3 className="font-bold text-sm text-ink">Instalar App no Dispositivo</h3>
+                  <p className="text-xs text-ink/65 mt-1 max-w-md">
                     Instale o ZimFinance como PWA para acessar rapidamente pela tela inicial com desempenho otimizado.
                   </p>
                 </div>
                 <button
                   onClick={triggerInstallPWA}
-                  className="flex items-center justify-center gap-2 bg-emerald-500 hover:bg-emerald-400 text-white font-bold px-4 py-2.5 rounded-xl text-xs transition-all shadow-lg shadow-emerald-500/20 cursor-pointer shrink-0"
+                  className="flex items-center justify-center gap-2 bg-primary hover:bg-primary text-ink font-bold px-4 py-2.5 rounded-xl text-xs transition-all cursor-pointer shrink-0"
                 >
                   <Download className="w-4 h-4" />
                   <span>Instalar App</span>
@@ -2466,59 +2948,59 @@ export default function App() {
 
               {/* Painel Administrativo (apenas para Admin) */}
               {userProfile?.role === 'admin' && (
-                <div className="space-y-6 pt-4 border-t border-white/5">
+                <div className="space-y-6 pt-4 border-t border-ink/10">
                   <div className="flex items-center gap-3 mb-2">
-                    <div className="p-2.5 bg-violet-500/10 border border-violet-500/20 rounded-xl">
-                      <Shield className="w-5 h-5 text-violet-400" />
+                    <div className="p-2.5 bg-brand-blue border border-brand-blue rounded-xl">
+                      <Shield className="w-5 h-5 text-brand-blue" />
                     </div>
                     <div>
                       <h2 className="font-extrabold text-lg">Painel Administrativo</h2>
-                      <p className="text-white/40 text-xs">Gerencie usuários do ZimFinance</p>
+                      <p className="text-ink/65 text-xs">Gerencie usuários do ZimFinance</p>
                     </div>
                   </div>
 
-                  <div className="bg-white/3 border border-white/8 rounded-2xl overflow-hidden">
-                    <div className="flex items-center gap-2 px-5 py-4 border-b border-white/5">
-                      <UserPlus className="w-4 h-4 text-emerald-400" />
+                  <div className="bg-ink/[0.03] border border-ink/10 rounded-2xl overflow-hidden">
+                    <div className="flex items-center gap-2 px-5 py-4 border-b border-ink/10">
+                      <UserPlus className="w-4 h-4 text-primary-dark" />
                       <span className="font-bold text-sm">Criar Novo Usuário</span>
                     </div>
 
                     <div className="p-5 space-y-4">
                       {adminMsg && (
-                        <div className={`p-3 rounded-xl text-sm font-medium border ${adminMsg.type === 'success' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-rose-500/10 text-rose-400 border-rose-500/20'}`}>
+                        <div className={`p-3 rounded-xl text-sm font-medium border ${adminMsg.type === 'success' ? 'bg-primary/10 text-primary-dark border-primary/20' : 'bg-rose-500/10 text-rose-700 border-rose-500/20'}`}>
                           {adminMsg.text}
                         </div>
                       )}
 
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <div>
-                          <label className="block text-[10px] font-bold text-white/40 uppercase tracking-widest mb-1.5">Nome</label>
+                          <label className="block text-[10px] font-bold text-ink/65 uppercase tracking-widest mb-1.5">Nome</label>
                           <input
                             type="text"
                             value={newUserName}
                             onChange={e => setNewUserName(e.target.value)}
                             placeholder="Nome do usuário"
-                            className="w-full bg-black/20 border border-white/10 focus:border-emerald-500 p-2.5 rounded-xl text-sm text-white outline-none transition-all"
+                            className="w-full bg-soft border border-ink/10 focus:border-primary p-2.5 rounded-xl text-sm text-ink outline-none transition-all"
                           />
                         </div>
                         <div>
-                          <label className="block text-[10px] font-bold text-white/40 uppercase tracking-widest mb-1.5">E-mail *</label>
+                          <label className="block text-[10px] font-bold text-ink/65 uppercase tracking-widest mb-1.5">E-mail *</label>
                           <input
                             type="email"
                             value={newUserEmail}
                             onChange={e => setNewUserEmail(e.target.value)}
                             placeholder="email@exemplo.com"
-                            className="w-full bg-black/20 border border-white/10 focus:border-emerald-500 p-2.5 rounded-xl text-sm text-white outline-none transition-all"
+                            className="w-full bg-soft border border-ink/10 focus:border-primary p-2.5 rounded-xl text-sm text-ink outline-none transition-all"
                           />
                         </div>
                         <div className="sm:col-span-2">
-                          <label className="block text-[10px] font-bold text-white/40 uppercase tracking-widest mb-1.5">Senha *</label>
+                          <label className="block text-[10px] font-bold text-ink/65 uppercase tracking-widest mb-1.5">Senha *</label>
                           <input
                             type="password"
                             value={newUserPassword}
                             onChange={e => setNewUserPassword(e.target.value)}
                             placeholder="Mínimo 6 caracteres"
-                            className="w-full bg-black/20 border border-white/10 focus:border-emerald-500 p-2.5 rounded-xl text-sm text-white outline-none transition-all"
+                            className="w-full bg-soft border border-ink/10 focus:border-primary p-2.5 rounded-xl text-sm text-ink outline-none transition-all"
                           />
                         </div>
                       </div>
@@ -2526,7 +3008,7 @@ export default function App() {
                       <button
                         onClick={createAdminUser}
                         disabled={adminLoading}
-                        className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-emerald-500 to-emerald-600 text-white font-bold py-3 rounded-xl hover:from-emerald-400 hover:to-emerald-500 transition-all disabled:opacity-50"
+                        className="w-full flex items-center justify-center gap-2 bg-primary text-ink font-bold py-3 rounded-xl hover:brightness-95 transition-all disabled:opacity-50"
                       >
                         {adminLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <UserPlus className="w-4 h-4" />}
                         Criar Usuário
@@ -2534,29 +3016,29 @@ export default function App() {
                     </div>
                   </div>
 
-                  <div className="bg-white/3 border border-white/8 rounded-2xl overflow-hidden">
-                    <div className="flex items-center gap-2 px-5 py-4 border-b border-white/5">
-                      <Users className="w-4 h-4 text-indigo-400" />
+                  <div className="bg-ink/[0.03] border border-ink/10 rounded-2xl overflow-hidden">
+                    <div className="flex items-center gap-2 px-5 py-4 border-b border-ink/10">
+                      <Users className="w-4 h-4 text-brand-blue" />
                       <span className="font-bold text-sm">Usuários Cadastrados</span>
-                      <span className="ml-auto text-xs text-white/30 font-mono">{adminUsers.length}</span>
+                      <span className="ml-auto text-xs text-ink/65 tabular-nums">{adminUsers.length}</span>
                     </div>
 
                     {adminLoading && adminUsers.length === 0 ? (
                       <div className="p-8 flex justify-center">
-                        <Loader2 className="w-6 h-6 animate-spin text-emerald-500" />
+                        <Loader2 className="w-6 h-6 animate-spin text-primary-dark" />
                       </div>
                     ) : (
-                      <div className="divide-y divide-white/5">
+                      <div className="divide-y divide-ink/5">
                         {adminUsers.map(u => (
                           <div key={u.id} className="flex items-center px-5 py-3.5 gap-3">
-                            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-emerald-500/30 to-indigo-500/30 border border-white/10 flex items-center justify-center text-xs font-bold text-white/70 flex-shrink-0">
+                            <div className="w-8 h-8 rounded-full bg-soft border border-ink/10 flex items-center justify-center text-xs font-bold text-ink/80 flex-shrink-0">
                               {(u.display_name || u.email).charAt(0).toUpperCase()}
                             </div>
                             <div className="flex-1 min-w-0">
-                              <p className="text-sm font-bold text-white truncate">{u.display_name || u.email.split('@')[0]}</p>
-                              <p className="text-xs text-white/40 truncate">{u.email}</p>
+                              <p className="text-sm font-bold text-ink truncate">{u.display_name || u.email.split('@')[0]}</p>
+                              <p className="text-xs text-ink/65 truncate">{u.email}</p>
                             </div>
-                            <span className={`text-[10px] font-bold px-2 py-1 rounded-lg ${u.role === 'admin' ? 'bg-violet-500/20 text-violet-400 border border-violet-500/20' : 'bg-white/5 text-white/40 border border-white/10'}`}>
+                            <span className={`text-[10px] font-bold px-2 py-1 rounded-lg ${u.role === 'admin' ? 'bg-brand-blue text-brand-blue border border-brand-blue' : 'bg-soft text-ink/65 border border-ink/10'}`}>
                               {u.role === 'admin' ? 'Admin' : 'User'}
                             </span>
                           </div>
@@ -2605,14 +3087,14 @@ export default function App() {
               />
 
               <div className="fixed inset-0 z-[90] flex items-center justify-center p-4">
-                <div className="bg-[#1a1d23] border border-white/10 rounded-3xl w-full max-w-sm shadow-2xl">
-                  <div className="flex items-center gap-3 px-6 py-4 border-b border-white/10">
-                    <div className="p-2 bg-indigo-500/10 rounded-xl">
-                      <Share2 className="w-4 h-4 text-indigo-400" />
+                <div className="bg-white border border-ink/10 rounded-3xl w-full max-w-sm shadow-2xl">
+                  <div className="flex items-center gap-3 px-6 py-4 border-b border-ink/10">
+                    <div className="p-2 bg-brand-blue/10 rounded-xl">
+                      <Share2 className="w-4 h-4 text-brand-blue" />
                     </div>
                     <div>
                       <h3 className="font-bold text-sm">Compartilhar Despesa</h3>
-                      <p className="text-white/40 text-xs truncate max-w-[180px]">{item.name || 'Sem nome'}</p>
+                      <p className="text-ink/65 text-xs truncate max-w-[180px]">{item.name || 'Sem nome'}</p>
                     </div>
                     <button
                       onClick={() => {
@@ -2621,7 +3103,7 @@ export default function App() {
                         setShareValue('');
                         setShareMsg(null);
                       }}
-                      className="ml-auto p-1.5 text-white/40 hover:text-white rounded-lg"
+                      className="ml-auto p-1.5 text-ink/65 hover:text-ink rounded-lg"
                     >
                       <X className="w-4 h-4" />
                     </button>
@@ -2629,39 +3111,39 @@ export default function App() {
 
                   <div className="p-6 space-y-4">
                     {shareMsg && (
-                      <div className={`p-3 rounded-xl text-xs font-medium ${shareMsg.type === 'success' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'}`}>
+                      <div className={`p-3 rounded-xl text-xs font-medium ${shareMsg.type === 'success' ? 'bg-primary/10 text-primary-dark' : 'bg-rose-500/10 text-rose-700'}`}>
                         {shareMsg.text}
                       </div>
                     )}
 
-                    <div className="bg-white/3 border border-white/8 rounded-xl p-3 flex items-center justify-between">
+                    <div className="bg-ink/[0.03] border border-ink/10 rounded-xl p-3 flex items-center justify-between">
                       <div>
-                        <p className="text-[10px] text-white/40 uppercase tracking-wider font-bold">Valor total</p>
-                        <p className="text-lg font-mono font-bold text-white">
+                        <p className="text-[10px] text-ink/65 uppercase tracking-wider font-bold">Valor total</p>
+                        <p className="text-lg tabular-nums font-bold text-ink">
                           {formatCurrency(modalTotal)}
                         </p>
                       </div>
                       <div className="text-right">
-                        <p className="text-[10px] text-white/40 uppercase tracking-wider font-bold">Conta</p>
-                        <p className="text-xs font-bold text-indigo-400">
+                        <p className="text-[10px] text-ink/65 uppercase tracking-wider font-bold">Conta</p>
+                        <p className="text-xs font-bold text-brand-blue">
                           {modalType}
                         </p>
                       </div>
                     </div>
 
                   <div>
-                    <label className="block text-[10px] font-bold text-white/40 uppercase tracking-widest mb-1.5">E-mail do usuário</label>
+                    <label className="block text-[10px] font-bold text-ink/65 uppercase tracking-widest mb-1.5">E-mail do usuário</label>
                     <input
                       type="email"
                       value={shareEmail}
                       onChange={e => setShareEmail(e.target.value)}
                       placeholder="email@exemplo.com"
-                      className="w-full bg-black/20 border border-white/10 focus:border-indigo-500 p-3 rounded-xl text-sm text-white outline-none transition-all"
+                      className="w-full bg-soft border border-ink/10 focus:border-brand-blue p-3 rounded-xl text-sm text-ink outline-none transition-all"
                     />
                   </div>
 
                   <div>
-                    <label className="block text-[10px] font-bold text-white/40 uppercase tracking-widest mb-1.5">Valor que ele(a) vai pagar</label>
+                    <label className="block text-[10px] font-bold text-ink/65 uppercase tracking-widest mb-1.5">Valor que ele(a) vai pagar</label>
                     <input
                       type="number"
                       value={shareValue}
@@ -2669,7 +3151,7 @@ export default function App() {
                       placeholder="0,00"
                       min="0"
                       step="0.01"
-                      className="w-full bg-black/20 border border-white/10 focus:border-indigo-500 p-3 rounded-xl text-sm text-white outline-none transition-all"
+                      className="w-full bg-soft border border-ink/10 focus:border-brand-blue p-3 rounded-xl text-sm text-ink outline-none transition-all"
                     />
                   </div>
 
@@ -2681,14 +3163,14 @@ export default function App() {
                         setShareValue('');
                         setShareMsg(null);
                       }}
-                      className="flex-1 py-3 rounded-xl border border-white/10 text-white/50 text-sm font-bold hover:bg-white/5 transition-all"
+                      className="flex-1 py-3 rounded-xl border border-ink/10 text-ink/70 text-sm font-bold hover:bg-soft transition-all"
                     >
                       Cancelar
                     </button>
                     <button
                       onClick={sendExpenseShare}
                       disabled={shareLoading}
-                      className="flex-1 py-3 rounded-xl bg-gradient-to-r from-indigo-500 to-indigo-600 text-white text-sm font-bold hover:from-indigo-400 hover:to-indigo-500 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+                      className="flex-1 py-3 rounded-xl bg-brand-blue text-white text-sm font-bold hover:brightness-95 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
                     >
                       {shareLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Share2 className="w-4 h-4" />}
                       Compartilhar
@@ -2711,18 +3193,18 @@ export default function App() {
               />
 
               <div className="fixed inset-0 z-[90] flex items-center justify-center p-4">
-                <div className="bg-[#1a1d23] border border-white/10 rounded-3xl w-full max-w-sm shadow-2xl">
-                  <div className="flex items-center gap-3 px-6 py-4 border-b border-white/10">
-                    <div className="p-2 bg-emerald-500/10 rounded-xl">
-                      <Repeat className="w-4 h-4 text-emerald-400" />
+                <div className="bg-white border border-ink/10 rounded-3xl w-full max-w-sm shadow-2xl">
+                  <div className="flex items-center gap-3 px-6 py-4 border-b border-ink/10">
+                    <div className="p-2 bg-primary/10 rounded-xl">
+                      <Repeat className="w-4 h-4 text-primary-dark" />
                     </div>
                     <div>
                       <h3 className="font-bold text-sm">Configurar Recorrência</h3>
-                      <p className="text-white/40 text-xs truncate max-w-[180px]">{item.name || 'Sem nome'}</p>
+                      <p className="text-ink/65 text-xs truncate max-w-[180px]">{item.name || 'Sem nome'}</p>
                     </div>
                     <button
                       onClick={() => setRecurrenceModal(null)}
-                      className="ml-auto p-1.5 text-white/40 hover:text-white rounded-lg"
+                      className="ml-auto p-1.5 text-ink/65 hover:text-ink rounded-lg"
                     >
                       <X className="w-4 h-4" />
                     </button>
@@ -2730,15 +3212,15 @@ export default function App() {
 
                   <div className="p-6 space-y-4">
                     <div>
-                      <label className="block text-[10px] font-bold text-white/40 uppercase tracking-widest mb-2">Tipo de Recorrência</label>
-                      <div className="grid grid-cols-2 gap-2 bg-black/20 p-1 rounded-xl border border-white/5">
+                      <label className="block text-[10px] font-bold text-ink/65 uppercase tracking-widest mb-2">Tipo de Recorrência</label>
+                      <div className="grid grid-cols-2 gap-2 bg-soft p-1 rounded-xl border border-ink/10">
                         <button
                           type="button"
                           onClick={() => setRecType('continuous')}
                           className={`py-2 px-3 rounded-lg text-xs font-bold transition-all ${
                             recType === 'continuous'
-                              ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
-                              : 'text-white/40 hover:text-white border border-transparent'
+                              ? 'bg-primary/10 text-primary-dark border border-primary/20'
+                              : 'text-ink/65 hover:text-ink border border-transparent'
                           }`}
                         >
                           Indefinida
@@ -2748,8 +3230,8 @@ export default function App() {
                           onClick={() => setRecType('limited')}
                           className={`py-2 px-3 rounded-lg text-xs font-bold transition-all ${
                             recType === 'limited'
-                              ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
-                              : 'text-white/40 hover:text-white border border-transparent'
+                              ? 'bg-primary/10 text-primary-dark border border-primary/20'
+                              : 'text-ink/65 hover:text-ink border border-transparent'
                           }`}
                         >
                           Prazo Limite
@@ -2760,14 +3242,14 @@ export default function App() {
                     {recType === 'limited' && (
                       <div className="space-y-3">
                         <div>
-                          <label className="block text-[10px] font-bold text-white/40 uppercase tracking-widest mb-1.5">Válido até o mês</label>
+                          <label className="block text-[10px] font-bold text-ink/65 uppercase tracking-widest mb-1.5">Válido até o mês</label>
                           <select
                             value={recTargetMonth}
                             onChange={(e) => setRecTargetMonth(Number(e.target.value))}
-                            className="w-full bg-black/20 border border-white/10 focus:border-emerald-500 p-3 rounded-xl text-sm text-white outline-none transition-all"
+                            className="w-full bg-soft border border-ink/10 focus:border-primary p-3 rounded-xl text-sm text-ink outline-none transition-all"
                           >
                             {MONTH_NAMES.map((name, idx) => (
-                              <option key={idx} value={idx + 1} className="bg-[#1a1d23] text-white">
+                              <option key={idx} value={idx + 1} className="bg-white text-ink">
                                 {name}
                               </option>
                             ))}
@@ -2775,14 +3257,14 @@ export default function App() {
                         </div>
 
                         <div>
-                          <label className="block text-[10px] font-bold text-white/40 uppercase tracking-widest mb-1.5">Ano limite</label>
+                          <label className="block text-[10px] font-bold text-ink/65 uppercase tracking-widest mb-1.5">Ano limite</label>
                           <select
                             value={recTargetYear}
                             onChange={(e) => setRecTargetYear(Number(e.target.value))}
-                            className="w-full bg-black/20 border border-white/10 focus:border-emerald-500 p-3 rounded-xl text-sm text-white outline-none transition-all"
+                            className="w-full bg-soft border border-ink/10 focus:border-primary p-3 rounded-xl text-sm text-ink outline-none transition-all"
                           >
                             {Array.from({ length: 6 }, (_, i) => currentYear + i).map((year) => (
-                              <option key={year} value={year} className="bg-[#1a1d23] text-white">
+                              <option key={year} value={year} className="bg-white text-ink">
                                 {year}
                               </option>
                             ))}
@@ -2793,10 +3275,10 @@ export default function App() {
 
                     {recLoading && (
                       <div className="space-y-2 py-1">
-                        <div className="h-2 bg-white/5 rounded-full overflow-hidden">
-                          <div className="h-full bg-emerald-500/40 rounded-full animate-pulse" style={{ width: '100%' }} />
+                        <div className="h-2 bg-soft rounded-full overflow-hidden">
+                          <div className="h-full bg-primary/40 rounded-full animate-pulse" style={{ width: '100%' }} />
                         </div>
-                        <p className="text-[10px] text-white/30 text-center">Aplicando recorrência nos meses...</p>
+                        <p className="text-[10px] text-ink/65 text-center">Aplicando recorrência nos meses...</p>
                       </div>
                     )}
 
@@ -2804,14 +3286,14 @@ export default function App() {
                       <button
                         onClick={() => setRecurrenceModal(null)}
                         disabled={recLoading}
-                        className="flex-1 py-3 rounded-xl border border-white/10 text-white/50 text-sm font-bold hover:bg-white/5 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                        className="flex-1 py-3 rounded-xl border border-ink/10 text-ink/70 text-sm font-bold hover:bg-soft transition-all disabled:opacity-40 disabled:cursor-not-allowed"
                       >
                         Cancelar
                       </button>
                       <button
                         onClick={saveRecurrenceConfig}
                         disabled={recLoading}
-                        className="flex-1 py-3 rounded-xl bg-gradient-to-r from-emerald-500 to-emerald-600 text-white text-sm font-bold hover:from-emerald-400 hover:to-emerald-500 transition-all disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                        className="flex-1 py-3 rounded-xl bg-primary text-ink text-sm font-bold hover:brightness-95 transition-all disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                       >
                         {recLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Repeat className="w-4 h-4" />}
                         {recLoading ? 'Salvando...' : 'Salvar'}
@@ -2823,26 +3305,31 @@ export default function App() {
             </>
           );
         })()}
+        </div>
       </main>
 
-      <nav className="fixed bottom-0 left-0 right-0 lg:hidden z-50 bg-[#0f1115]/95 backdrop-blur-2xl border-t border-white/10">
-        <div className="flex items-center justify-around h-14">
+      <nav className="fixed bottom-0 left-0 right-0 lg:hidden z-50 bg-soft rounded-t-[2rem] pb-safe shadow-[0_-4px_20px_rgba(9,48,48,0.08)]">
+        <div className="flex items-center justify-around h-16 px-2">
           <button
             onClick={() => setActiveView('dashboard')}
-            className={`flex flex-col items-center justify-center flex-1 h-full transition-all ${activeView === 'dashboard' ? 'text-emerald-400' : 'text-white/40'}`}
+            aria-label="Dashboard"
+            aria-current={activeView === 'dashboard' ? 'page' : undefined}
+            className="flex-1 flex justify-center"
           >
-            <LayoutDashboard className="w-5 h-5" />
-            <span className="text-[10px] font-bold mt-0.5">Dashboard</span>
+            <span className={`w-12 h-11 rounded-2xl flex items-center justify-center transition-all ${activeView === 'dashboard' ? 'bg-primary text-ink' : 'text-ink/70'}`}>
+              <LayoutDashboard className="w-6 h-6" />
+            </span>
           </button>
-
           <button
             onClick={() => setActiveView('lancamentos')}
-            className={`flex flex-col items-center justify-center flex-1 h-full transition-all ${activeView === 'lancamentos' ? 'text-emerald-400' : 'text-white/40'}`}
+            aria-label="Lançamentos"
+            aria-current={activeView === 'lancamentos' ? 'page' : undefined}
+            className="flex-1 flex justify-center"
           >
-            <Receipt className="w-5 h-5" />
-            <span className="text-[10px] font-bold mt-0.5">Lançamentos</span>
+            <span className={`w-12 h-11 rounded-2xl flex items-center justify-center transition-all ${activeView === 'lancamentos' ? 'bg-primary text-ink' : 'text-ink/70'}`}>
+              <Receipt className="w-6 h-6" />
+            </span>
           </button>
-
           <button
             onClick={() => {
               setActiveView('settings');
@@ -2850,46 +3337,46 @@ export default function App() {
                 loadAdminUsers();
               }
             }}
-            className={`flex flex-col items-center justify-center flex-1 h-full transition-all ${activeView === 'settings' ? 'text-violet-400' : 'text-white/40'}`}
+            aria-label="Ajustes"
+            aria-current={activeView === 'settings' ? 'page' : undefined}
+            className="flex-1 flex justify-center"
           >
-            <Settings className="w-5 h-5" />
-            <span className="text-[10px] font-bold mt-0.5">Ajustes</span>
+            <span className={`w-12 h-11 rounded-2xl flex items-center justify-center transition-all ${activeView === 'settings' ? 'bg-primary text-ink' : 'text-ink/70'}`}>
+              <Settings className="w-6 h-6" />
+            </span>
           </button>
-
-          <button
-            onClick={handleLogout}
-            className="flex flex-col items-center justify-center flex-1 h-full text-white/40 hover:text-rose-400 transition-all"
-          >
-            <LogOut className="w-5 h-5" />
-            <span className="text-[10px] font-bold mt-0.5">Sair</span>
+          <button onClick={handleLogout} aria-label="Sair" className="flex-1 flex justify-center">
+            <span className="w-12 h-11 rounded-2xl flex items-center justify-center text-ink/70">
+              <LogOut className="w-6 h-6" />
+            </span>
           </button>
         </div>
       </nav>
 
       {showIOSModal && (
         <div className="fixed inset-0 bg-black/70 backdrop-blur-md z-[100] flex items-center justify-center p-4">
-          <div className="bg-[#1a1d23] border border-white/10 p-6 rounded-3xl max-w-sm w-full space-y-4 text-center shadow-2xl relative animate-in fade-in zoom-in-95">
-            <button onClick={() => setShowIOSModal(false)} className="absolute top-4 right-4 p-1 text-white/40 hover:text-white rounded-lg">
+          <div className="bg-white border border-ink/10 p-6 rounded-3xl max-w-sm w-full space-y-4 text-center shadow-2xl relative animate-in fade-in zoom-in-95">
+            <button onClick={() => setShowIOSModal(false)} className="absolute top-4 right-4 p-1 text-ink/65 hover:text-ink rounded-lg">
               <X className="w-5 h-5" />
             </button>
-            <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center mx-auto text-emerald-400">
+            <div className="w-12 h-12 rounded-2xl bg-primary/10 border border-primary/20 flex items-center justify-center mx-auto text-primary-dark">
               <Smartphone className="w-6 h-6" />
             </div>
-            <h3 className="font-extrabold text-lg text-white">Instalar no iPhone / iPad</h3>
-            <div className="text-xs text-white/70 space-y-2 text-left bg-black/30 p-4 rounded-2xl border border-white/5">
+            <h3 className="font-extrabold text-lg text-ink">Instalar no iPhone / iPad</h3>
+            <div className="text-xs text-ink/80 space-y-2 text-left bg-soft p-4 rounded-2xl border border-ink/10">
               <p className="flex items-center gap-2">
-                <span className="w-5 h-5 rounded-full bg-emerald-500/20 text-emerald-400 font-bold flex items-center justify-center text-[10px] shrink-0">1</span>
-                <span>Toque no botão <strong className="text-emerald-400">Compartilhar</strong> no Safari (ícone com quadrado e seta).</span>
+                <span className="w-5 h-5 rounded-full bg-primary/20 text-primary-dark font-bold flex items-center justify-center text-[10px] shrink-0">1</span>
+                <span>Toque no botão <strong className="text-primary-dark">Compartilhar</strong> no Safari (ícone com quadrado e seta).</span>
               </p>
               <p className="flex items-center gap-2">
-                <span className="w-5 h-5 rounded-full bg-emerald-500/20 text-emerald-400 font-bold flex items-center justify-center text-[10px] shrink-0">2</span>
-                <span>Role para baixo e selecione <strong className="text-white">'Adicionar à Tela de Início'</strong>.</span>
+                <span className="w-5 h-5 rounded-full bg-primary/20 text-primary-dark font-bold flex items-center justify-center text-[10px] shrink-0">2</span>
+                <span>Role para baixo e selecione <strong className="text-ink">'Adicionar à Tela de Início'</strong>.</span>
               </p>
               <p className="flex items-center gap-2">
-                <span className="w-5 h-5 rounded-full bg-emerald-500/20 text-emerald-400 font-bold flex items-center justify-center text-[10px] shrink-0">3</span>
+                <span className="w-5 h-5 rounded-full bg-primary/20 text-primary-dark font-bold flex items-center justify-center text-[10px] shrink-0">3</span>
                 <span>Pronto! O ZimFinance funcionará como App nativo no seu iPhone.</span>
               </p>
-              <button onClick={() => setShowIOSModal(false)} className="w-full bg-emerald-500 text-white font-bold py-2.5 rounded-xl hover:bg-emerald-400 transition-all cursor-pointer">
+              <button onClick={() => setShowIOSModal(false)} className="w-full bg-primary text-ink font-bold py-2.5 rounded-xl hover:bg-primary transition-all cursor-pointer">
                 Entendi
               </button>
             </div>
@@ -2897,13 +3384,30 @@ export default function App() {
         </div>
       )}
 
+      {(saveFailed || notice) && (
+        <div className="fixed bottom-24 lg:bottom-6 left-1/2 -translate-x-1/2 z-[100] w-[calc(100%-2rem)] max-w-md" role="status">
+          {saveFailed ? (
+            <div className="flex items-center gap-3 px-4 py-3 rounded-2xl border border-rose-500/30 bg-rose-950/90 text-sm text-rose-200 shadow-2xl">
+              <span className="flex-1">Não foi possível salvar sua última alteração. Recarregue para ver o que está gravado.</span>
+              <button onClick={() => window.location.reload()} className="shrink-0 px-3 py-1.5 rounded-lg bg-rose-500 text-white text-xs font-bold">
+                Recarregar
+              </button>
+            </div>
+          ) : (
+            <div className="px-4 py-3 rounded-2xl border border-transparent bg-brand-blue text-sm text-white shadow-2xl">
+              {notice}
+            </div>
+          )}
+        </div>
+      )}
+
       <CardManagementModal
         isOpen={isCardModalOpen}
         onClose={() => setCardModalOpen(false)}
-        cards={items.filter(i => i.type.startsWith('card_'))}
+        cards={cards.filter(card => isCardActiveInMonth(card, currentMonthId))}
         onAddCard={handleAddCard}
         onUpdateCard={handleUpdateCard}
-        onDeleteCard={removeItem}
+        onDeleteCard={handleDeleteCard}
         onAddCardExpense={handleModalAddCardExpense}
       />
     </div>

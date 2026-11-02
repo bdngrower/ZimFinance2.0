@@ -25,6 +25,11 @@ O ZimFinance 2.0 nasceu da necessidade de modernizar um controle financeiro que 
 #### A. Gestão de Cartões
 - **Estrutura**: O Cartão tem um valor **Base** (manual) e uma lista de **Sub-despesas**.
 - **Cálculo**: `Total Exibido = Valor Base + Soma das Sub-despesas`.
+- **Cadastro**: A tabela `cards` guarda nome, fechamento, vencimento e a escolha de contabilizar em Pagamento ou Adiantamento (`accounting_source`). Ao abrir um mês, cada cartão ativo ganha sua linha em `items`, ligada por `card_id`.
+- **Mudança de contabilização**: Vale do mês aberto em diante e leva junto o valor base. Os meses anteriores não mudam.
+- **Fatura**: A data da compra e os dias do cartão definem o mês em que ela é paga (`getInvoiceMonth`). Sem esses dias, a compra fica no mês aberto.
+- **Parcelas**: Cada parcela é uma linha em `card_expenses` nos meses seguintes, ligada por `installment_group_id`.
+- **Exclusão**: Encerra o cartão no mês anterior (`end_month`) e preserva o histórico.
 
 #### B. Confirmação de Pagamento ("PG")
 - **Implementação**: Coluna `is_paid` em `items` e `card_expenses`.

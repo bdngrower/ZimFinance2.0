@@ -1,9 +1,26 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap');
 @import "tailwindcss";
 
 @theme {
-  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  --font-sans: "Poppins", ui-sans-serif, system-ui, sans-serif;
+
+  --color-primary: #00D09E;
+  --color-primary-dark: #00735C;
+  --color-ink: #093030;
+  --color-mint: #F1FFF3;
+  --color-soft: #DFF7E2;
+  --color-brand-blue: #0068FF;
+  --color-brand-blue-dark: #0052CC;
+  --color-sky-tile: #6DB6FE;
+
+  --shadow-card: 0 4px 20px rgba(9, 48, 48, 0.07);
+}
+
+@layer base {
+  html,
+  body {
+    background-color: var(--color-primary);
+  }
 }
 
 @layer utilities {
