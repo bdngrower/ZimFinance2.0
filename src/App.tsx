@@ -482,10 +482,11 @@ export default function App() {
         await supabase.from('months').upsert(
           {
             id: share.source_month_id,
+            user_id: session.user.id,
             year: parseInt(y, 10),
             month_name: MONTH_NAMES[parseInt(m, 10) - 1],
           },
-          { onConflict: 'id', ignoreDuplicates: true },
+          { ignoreDuplicates: true },
         );
       }
 
@@ -763,16 +764,16 @@ export default function App() {
       .single();
 
     if (!monthData && monthError?.code === 'PGRST116') {
-      // O id do mês é único entre usuários: se outro já criou este mês, nada é inserido
       const { data: newMonth } = await supabase
         .from('months')
         .upsert(
           {
             id: currentMonthId,
+            user_id: session.user.id,
             year: currentYear,
             month_name: MONTH_NAMES[currentMonthIndex],
           },
-          { onConflict: 'id', ignoreDuplicates: true },
+          { ignoreDuplicates: true },
         )
         .select();
 
@@ -971,10 +972,11 @@ export default function App() {
       await supabase.from('months').upsert(
         {
           id: monthId,
+          user_id: session.user.id,
           year: parseInt(y, 10),
           month_name: MONTH_NAMES[parseInt(m, 10) - 1],
         },
-        { onConflict: 'id', ignoreDuplicates: true },
+        { ignoreDuplicates: true },
       );
     }
   };
