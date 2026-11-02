@@ -38,6 +38,7 @@ import { CardFormValues, CardManagementModal } from './components/CardManagement
 import { AccountingSource, addMonths, Card, getInvoiceMonth, isCardActiveInMonth, moveBaseAmount, splitInstallments } from './lib/cards';
 import { ParsedExpense } from './lib/nlpParser';
 import { SAVE_ERROR_EVENT } from './lib/saveErrors';
+import { applyTheme, readThemePreference, saveThemePreference, ThemePreference } from './lib/theme';
 import { Category, DEFAULT_CATEGORIES, findCategory, groupByCategory, OTHER_CATEGORY, suggestCategory } from './lib/categories';
 import { CategoryIcon, CategoryManagerModal, CategorySelect } from './components/CategoryControls';
 import {
@@ -73,7 +74,7 @@ const PIE_COLORS = [
   '#00D09E',
   '#0068FF',
   '#6DB6FE',
-  '#093030',
+  'var(--chart-contrast)',
   '#F59E0B',
   '#8B5CF6',
   '#EC4899',
@@ -204,6 +205,7 @@ export default function App() {
   const [isCategoryModalOpen, setCategoryModalOpen] = useState(false);
   const [categoryTarget, setCategoryTarget] = useState<((categoryId: string) => void) | null>(null);
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
+  const [themePreference, setThemePreference] = useState<ThemePreference>(readThemePreference);
   const [lancamentosTab, setLancamentosTab] = useState<'pagamento' | 'vale' | 'cartoes'>('pagamento');
   const [notifications, setNotifications] = useState<ExpenseShare[]>([]);
   const [showNotifications, setShowNotifications] = useState(false);
@@ -275,6 +277,16 @@ export default function App() {
       alert("Para instalar o ZimFinance no seu dispositivo, acesse pelo navegador do seu celular e selecione 'Adicionar à Tela de Início' no menu do navegador.");
     }
   };
+
+  useEffect(() => {
+    applyTheme(themePreference);
+    if (themePreference !== 'system') return;
+
+    const media = window.matchMedia('(prefers-color-scheme: dark)');
+    const handleChange = () => applyTheme('system');
+    media.addEventListener('change', handleChange);
+    return () => media.removeEventListener('change', handleChange);
+  }, [themePreference]);
 
   useEffect(() => {
     const handleSaveError = () => setSaveFailed(true);
@@ -2024,7 +2036,7 @@ export default function App() {
         <div className="fixed inset-0 bg-black/60 z-[60] lg:hidden" onClick={() => setSidebarOpen(false)} />
       )}
 
-      <aside className={`fixed lg:relative w-64 bg-white border-r border-ink/10 flex flex-col z-[70] h-full transition-transform duration-300 ease-in-out ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'} lg:translate-x-0`}>
+      <aside className={`fixed lg:relative w-64 bg-surface border-r border-ink/10 flex flex-col z-[70] h-full transition-transform duration-300 ease-in-out ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'} lg:translate-x-0`}>
         <div className="h-16 lg:h-24 flex items-center justify-between px-6 lg:px-8 border-b border-ink/10">
           <div className="flex items-center">
             <img src="/Logo.png" alt="Logo" className="w-8 h-8 lg:w-10 lg:h-10 object-contain mr-3" />
@@ -2142,7 +2154,7 @@ export default function App() {
               {showMonthPicker && (
                 <>
                   <div className="fixed inset-0 z-40" onClick={() => setShowMonthPicker(false)} />
-                  <div className="absolute top-full right-0 mt-2 z-50 bg-white border border-ink/10 rounded-2xl p-3 shadow-2xl w-64 animate-in fade-in zoom-in-95 duration-150">
+                  <div className="absolute top-full right-0 mt-2 z-50 bg-surface border border-ink/10 rounded-2xl p-3 shadow-2xl w-64 animate-in fade-in zoom-in-95 duration-150">
                     <div className="flex items-center justify-between mb-2">
                       <button onClick={() => setCurrentYear(y => y - 1)} aria-label="Ano anterior" className="p-1.5 text-ink/70 hover:bg-soft rounded-full transition-colors">
                         <ChevronLeft className="w-4 h-4" />
@@ -2194,7 +2206,7 @@ export default function App() {
               {showNotifications && (
                 <>
                   <div className="fixed inset-0 z-40" onClick={() => setShowNotifications(false)} />
-                  <div className="absolute right-0 top-full mt-2 z-50 w-80 bg-white border border-ink/10 rounded-2xl shadow-2xl overflow-hidden">
+                  <div className="absolute right-0 top-full mt-2 z-50 w-80 bg-surface border border-ink/10 rounded-2xl shadow-2xl overflow-hidden">
                     <div className="px-4 py-3 border-b border-ink/10 flex items-center gap-2">
                       <Bell className="w-4 h-4 text-primary-dark" />
                       <span className="font-bold text-sm">Notificações</span>
@@ -2342,7 +2354,7 @@ export default function App() {
                     </div>
 
                     <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
-                      <div className="xl:col-span-2 bg-white p-5 rounded-2xl border border-ink/10 flex flex-col shadow-xl">
+                      <div className="xl:col-span-2 bg-surface p-5 rounded-2xl border border-ink/10 flex flex-col shadow-xl">
                         <h3 className="text-sm font-bold text-ink/80 mb-4 flex items-center gap-2">
                           <TrendingUp className="w-4 h-4 text-brand-blue" />
                           Visão Anual ({currentYear})
@@ -2350,10 +2362,10 @@ export default function App() {
                         <div className="flex-1 w-full min-h-[260px]">
                           <ResponsiveContainer width="100%" height="100%">
                             <BarChart data={yearData} margin={{ top: 5, right: 5, left: -25, bottom: 0 }}>
-                              <CartesianGrid strokeDasharray="3 3" stroke="rgba(9,48,48,0.08)" vertical={false} />
-                              <XAxis dataKey="name" stroke="rgba(9,48,48,0.65)" fontSize={11} tickLine={false} axisLine={false} />
-                              <YAxis stroke="rgba(9,48,48,0.65)" fontSize={10} tickFormatter={(val) => `${Number(val) / 1000}k`} tickLine={false} axisLine={false} />
-                              <Tooltip cursor={{ fill: 'rgba(0,208,158,0.1)' }} contentStyle={{ backgroundColor: '#fff', border: 'none', borderRadius: '16px', color: '#093030', fontSize: '12px', boxShadow: '0 8px 24px rgba(9,48,48,0.12)' }} />
+                              <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" vertical={false} />
+                              <XAxis dataKey="name" stroke="var(--chart-axis)" fontSize={11} tickLine={false} axisLine={false} />
+                              <YAxis stroke="var(--chart-axis)" fontSize={10} tickFormatter={(val) => `${Number(val) / 1000}k`} tickLine={false} axisLine={false} />
+                              <Tooltip cursor={{ fill: 'rgba(0,208,158,0.1)' }} contentStyle={{ backgroundColor: 'var(--color-surface)', border: 'none', borderRadius: '16px', color: 'var(--color-ink)', fontSize: '12px', boxShadow: '0 8px 24px rgba(9,48,48,0.12)' }} />
                               <Legend iconType="circle" wrapperStyle={{ fontSize: '11px', paddingTop: '8px' }} />
                               <Bar dataKey="Receitas" fill="#00D09E" radius={[6, 6, 0, 0]} maxBarSize={14} />
                               <Bar dataKey="Despesas" fill="#0068FF" radius={[6, 6, 0, 0]} maxBarSize={14} />
@@ -2362,7 +2374,7 @@ export default function App() {
                         </div>
                       </div>
 
-                      <div className="xl:col-span-1 bg-white p-5 rounded-2xl border border-ink/10 flex flex-col shadow-xl">
+                      <div className="xl:col-span-1 bg-surface p-5 rounded-2xl border border-ink/10 flex flex-col shadow-xl">
                         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
                           <h3 className="text-sm font-bold text-ink/80 flex items-center gap-2">
                             <PieChartIcon className="w-4 h-4 text-primary-dark" />
@@ -2433,7 +2445,7 @@ export default function App() {
                                       if (active && payload && payload.length) {
                                         const data = payload[0].payload;
                                         return (
-                                          <div className="bg-white border border-ink/10 p-3 rounded-xl shadow-2xl text-xs space-y-1.5 min-w-[190px]">
+                                          <div className="bg-surface border border-ink/10 p-3 rounded-xl shadow-2xl text-xs space-y-1.5 min-w-[190px]">
                                             <p className="font-bold text-ink border-b border-ink/10 pb-1">{data.name}</p>
                                             <div className="flex justify-between items-center text-primary-dark tabular-nums">
                                               <span className="text-ink/70 text-[10px]">No Mês:</span>
@@ -2516,7 +2528,7 @@ export default function App() {
                 ) : (
                   <div className="space-y-4">
                     <QuickEntryInput onAddEntry={handleQuickEntry} cards={items.filter(i => i.type.startsWith('card_'))} />
-                    <div className="bg-white rounded-3xl shadow-card overflow-hidden">
+                    <div className="bg-surface rounded-3xl shadow-card overflow-hidden">
 
                       <div className="flex items-center justify-between px-4 py-2.5 border-b border-ink/10">
                         <span className="text-[10px] font-bold text-ink/65 uppercase tracking-widest flex items-center gap-1.5">
@@ -2573,7 +2585,7 @@ export default function App() {
                     </div>
 
                     <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 items-start">
-                      <div className={`${lancamentosTab === 'pagamento' ? 'flex' : 'hidden lg:flex'} flex-col bg-white rounded-3xl shadow-card overflow-hidden`}>
+                      <div className={`${lancamentosTab === 'pagamento' ? 'flex' : 'hidden lg:flex'} flex-col bg-surface rounded-3xl shadow-card overflow-hidden`}>
                         <div className="px-4 py-3 border-b border-ink/10 flex justify-between items-center bg-primary/5">
                           <span className="text-sm font-bold text-ink flex items-center gap-1.5">
                             <TrendingDown className="w-4 h-4 text-primary-dark" /> Pagamento
@@ -2646,7 +2658,7 @@ export default function App() {
                                     placeholder="0"
                                   />
 
-                                  <div className={`flex w-full justify-end gap-1 items-center ${isEdit ? 'sm:w-auto' : 'sm:absolute sm:w-auto sm:right-3 sm:top-1/2 sm:-translate-y-1/2 sm:bg-white sm:shadow-card sm:rounded-xl sm:px-1 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100'} transition-all`}>
+                                  <div className={`flex w-full justify-end gap-1 items-center ${isEdit ? 'sm:w-auto' : 'sm:absolute sm:w-auto sm:right-3 sm:top-1/2 sm:-translate-y-1/2 sm:bg-surface sm:shadow-card sm:rounded-xl sm:px-1 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100'} transition-all`}>
                                     <button onClick={() => toggleRecurring(item)} className={`p-1 rounded transition-all ${item.is_recurring ? 'text-primary-dark bg-primary/10' : 'text-ink/50 hover:text-ink'}`} title="Recorrente">
                                       <Repeat className="w-4 h-4" />
                                     </button>
@@ -2686,7 +2698,7 @@ export default function App() {
                         </div>
                       </div>
 
-                      <div className={`${lancamentosTab === 'vale' ? 'flex' : 'hidden lg:flex'} flex-col bg-white rounded-3xl shadow-card overflow-hidden`}>
+                      <div className={`${lancamentosTab === 'vale' ? 'flex' : 'hidden lg:flex'} flex-col bg-surface rounded-3xl shadow-card overflow-hidden`}>
                         <div className="px-4 py-3 border-b border-ink/10 flex justify-between items-center bg-brand-blue/5">
                           <span className="text-xs font-bold text-brand-blue flex items-center gap-1.5">
                             <TrendingDown className="w-3.5 h-3.5" /> Adiantamento
@@ -2759,7 +2771,7 @@ export default function App() {
                                     placeholder="0"
                                   />
 
-                                  <div className={`flex w-full justify-end gap-1 items-center ${isEdit ? 'sm:w-auto' : 'sm:absolute sm:w-auto sm:right-3 sm:top-1/2 sm:-translate-y-1/2 sm:bg-white sm:shadow-card sm:rounded-xl sm:px-1 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100'} transition-all`}>
+                                  <div className={`flex w-full justify-end gap-1 items-center ${isEdit ? 'sm:w-auto' : 'sm:absolute sm:w-auto sm:right-3 sm:top-1/2 sm:-translate-y-1/2 sm:bg-surface sm:shadow-card sm:rounded-xl sm:px-1 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100'} transition-all`}>
                                     <button onClick={() => toggleRecurring(item)} className={`p-1 rounded transition-all ${item.is_recurring ? 'text-brand-blue bg-brand-blue/10' : 'text-ink/50 hover:text-ink'}`} title="Recorrente">
                                       <Repeat className="w-4 h-4" />
                                     </button>
@@ -2799,7 +2811,7 @@ export default function App() {
                         </div>
                       </div>
 
-                      <div className={`${lancamentosTab === 'cartoes' ? 'flex' : 'hidden lg:flex'} flex-col bg-white rounded-3xl shadow-card overflow-hidden`}>
+                      <div className={`${lancamentosTab === 'cartoes' ? 'flex' : 'hidden lg:flex'} flex-col bg-surface rounded-3xl shadow-card overflow-hidden`}>
                         <div className="px-4 py-3 border-b border-ink/10 flex justify-between items-center bg-ink/[0.03]">
                           <span className="text-sm font-bold text-ink flex items-center gap-1.5">
                             <CreditCard className="w-4 h-4 text-brand-blue" /> Cartões
@@ -2877,8 +2889,8 @@ export default function App() {
                                       aria-label={`Contabilizar ${item.name} em`}
                                       className={`order-5 sm:order-none text-[10px] font-bold outline-none appearance-none cursor-pointer rounded px-1.5 py-0.5 border transition-all ${isPagamento ? 'bg-primary/15 border-primary/20 text-primary-dark' : 'bg-brand-blue/15 border-brand-blue/20 text-brand-blue'}`}
                                     >
-                                      <option value="pagamento" className="bg-white">Pgto</option>
-                                      <option value="vale" className="bg-white">Adto</option>
+                                      <option value="pagamento" className="bg-surface">Pgto</option>
+                                      <option value="vale" className="bg-surface">Adto</option>
                                     </select>
 
                                     <span className="text-ink/65 text-[10px]">R$</span>
@@ -2897,7 +2909,7 @@ export default function App() {
                                       />
                                     )}
 
-                                    <div className={`order-6 sm:order-none flex flex-1 sm:flex-none justify-end gap-1 items-center ${isEdit ? 'sm:w-auto' : 'sm:absolute sm:w-auto sm:right-3 sm:top-1/2 sm:-translate-y-1/2 sm:bg-white sm:shadow-card sm:rounded-xl sm:px-1 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100'} transition-all`}>
+                                    <div className={`order-6 sm:order-none flex flex-1 sm:flex-none justify-end gap-1 items-center ${isEdit ? 'sm:w-auto' : 'sm:absolute sm:w-auto sm:right-3 sm:top-1/2 sm:-translate-y-1/2 sm:bg-surface sm:shadow-card sm:rounded-xl sm:px-1 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100'} transition-all`}>
                                       <button onClick={() => toggleRecurring(item)} className={`p-1 rounded ${item.is_recurring ? 'text-primary-dark bg-primary/10' : 'text-ink/50'}`} title="Recorrente">
                                         <Repeat className="w-4 h-4" />
                                       </button>
@@ -3073,9 +3085,30 @@ export default function App() {
           <div className="p-4 lg:p-8 pb-24 lg:pb-8">
             <div className="max-w-2xl mx-auto space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
               
+              <div className="bg-surface rounded-3xl shadow-card p-4">
+                <p className="text-sm font-bold text-ink">Aparência</p>
+                <p className="text-xs text-ink/70 mb-3">Automático segue o tema do seu aparelho</p>
+                <div className="flex items-center gap-1 bg-soft p-1 rounded-2xl" role="radiogroup" aria-label="Tema do app">
+                  {([['system', 'Automático'], ['light', 'Claro'], ['dark', 'Escuro']] as const).map(([option, label]) => (
+                    <button
+                      key={option}
+                      role="radio"
+                      aria-checked={themePreference === option}
+                      onClick={() => {
+                        setThemePreference(option);
+                        saveThemePreference(option);
+                      }}
+                      className={`flex-1 py-2 rounded-xl text-xs font-semibold transition-all ${themePreference === option ? 'bg-primary text-ink shadow-sm' : 'text-ink/70'}`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
               <button
                 onClick={() => openCategoryManager()}
-                className="w-full flex items-center gap-3 bg-white rounded-3xl shadow-card p-4 text-left hover:bg-soft transition-all"
+                className="w-full flex items-center gap-3 bg-surface rounded-3xl shadow-card p-4 text-left hover:bg-soft transition-all"
               >
                 <span className="w-10 h-10 rounded-2xl bg-sky-tile text-ink flex items-center justify-center shrink-0">
                   <CategoryIcon icon="tag" className="w-5 h-5" />
@@ -3255,7 +3288,7 @@ export default function App() {
               />
 
               <div className="fixed inset-0 z-[90] flex items-center justify-center p-4">
-                <div className="bg-white border border-ink/10 rounded-3xl w-full max-w-sm shadow-2xl">
+                <div className="bg-surface border border-ink/10 rounded-3xl w-full max-w-sm shadow-2xl">
                   <div className="flex items-center gap-3 px-6 py-4 border-b border-ink/10">
                     <div className="p-2 bg-brand-blue/10 rounded-xl">
                       <Share2 className="w-4 h-4 text-brand-blue" />
@@ -3361,7 +3394,7 @@ export default function App() {
               />
 
               <div className="fixed inset-0 z-[90] flex items-center justify-center p-4">
-                <div className="bg-white border border-ink/10 rounded-3xl w-full max-w-sm shadow-2xl">
+                <div className="bg-surface border border-ink/10 rounded-3xl w-full max-w-sm shadow-2xl">
                   <div className="flex items-center gap-3 px-6 py-4 border-b border-ink/10">
                     <div className="p-2 bg-primary/10 rounded-xl">
                       <Repeat className="w-4 h-4 text-primary-dark" />
@@ -3417,7 +3450,7 @@ export default function App() {
                             className="w-full bg-soft border border-ink/10 focus:border-primary p-3 rounded-xl text-sm text-ink outline-none transition-all"
                           >
                             {MONTH_NAMES.map((name, idx) => (
-                              <option key={idx} value={idx + 1} className="bg-white text-ink">
+                              <option key={idx} value={idx + 1} className="bg-surface text-ink">
                                 {name}
                               </option>
                             ))}
@@ -3432,7 +3465,7 @@ export default function App() {
                             className="w-full bg-soft border border-ink/10 focus:border-primary p-3 rounded-xl text-sm text-ink outline-none transition-all"
                           >
                             {Array.from({ length: 6 }, (_, i) => currentYear + i).map((year) => (
-                              <option key={year} value={year} className="bg-white text-ink">
+                              <option key={year} value={year} className="bg-surface text-ink">
                                 {year}
                               </option>
                             ))}
@@ -3523,7 +3556,7 @@ export default function App() {
 
       {showIOSModal && (
         <div className="fixed inset-0 bg-black/70 backdrop-blur-md z-[100] flex items-center justify-center p-4">
-          <div className="bg-white border border-ink/10 p-6 rounded-3xl max-w-sm w-full space-y-4 text-center shadow-2xl relative animate-in fade-in zoom-in-95">
+          <div className="bg-surface border border-ink/10 p-6 rounded-3xl max-w-sm w-full space-y-4 text-center shadow-2xl relative animate-in fade-in zoom-in-95">
             <button onClick={() => setShowIOSModal(false)} className="absolute top-4 right-4 p-1 text-ink/65 hover:text-ink rounded-lg">
               <X className="w-5 h-5" />
             </button>

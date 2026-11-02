@@ -103,7 +103,7 @@ export function CategoryManagerModal({
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-3 bg-white rounded-2xl p-4 shadow-card">
+        <form onSubmit={handleSubmit} className="space-y-3 bg-surface rounded-2xl p-4 shadow-card">
           <h3 className="text-sm font-bold text-ink">Nova categoria</h3>
           <label className="block text-xs font-medium text-ink/70">
             Nome
@@ -148,7 +148,7 @@ export function CategoryManagerModal({
             <p className="text-sm text-ink/65 py-1">Você ainda não criou nenhuma.</p>
           ) : (
             customCategories.map(category => (
-              <div key={category.id} className="flex items-center gap-3 bg-white rounded-2xl p-3 shadow-card">
+              <div key={category.id} className="flex items-center gap-3 bg-surface rounded-2xl p-3 shadow-card">
                 <span className="w-9 h-9 rounded-xl bg-sky-tile text-ink flex items-center justify-center shrink-0">
                   <CategoryIcon icon={category.icon} className="w-4 h-4" />
                 </span>
@@ -167,7 +167,7 @@ export function CategoryManagerModal({
             Já vêm com o app e não podem ser excluídas. A categoria é sugerida pelo nome do lançamento, e você pode trocar quando quiser.
           </p>
           {DEFAULT_CATEGORIES.map(category => (
-            <div key={category.id} className="flex items-center gap-3 bg-white rounded-2xl p-3 shadow-card">
+            <div key={category.id} className="flex items-center gap-3 bg-surface rounded-2xl p-3 shadow-card">
               <span className="w-9 h-9 rounded-xl bg-sky-tile text-ink flex items-center justify-center shrink-0">
                 <CategoryIcon icon={category.icon} className="w-4 h-4" />
               </span>

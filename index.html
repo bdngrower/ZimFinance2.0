@@ -11,6 +11,16 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="apple-mobile-web-app-title" content="ZimFinance" />
     <meta name="description" content="Controle Financeiro Pessoal e Compartilhado" />
+    <script>
+      // Aplica o tema antes da primeira pintura, para a tela não piscar
+      try {
+        var theme = localStorage.getItem('zimfinance-theme');
+        if (theme !== 'light' && theme !== 'dark') {
+          theme = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+        }
+        document.documentElement.dataset.theme = theme;
+      } catch (e) {}
+    </script>
   </head>
   <body>
     <div id="root"></div>

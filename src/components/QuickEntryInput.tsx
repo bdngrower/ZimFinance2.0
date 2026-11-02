@@ -117,12 +117,12 @@ export function QuickEntryInput({ onAddEntry, cards }: QuickEntryInputProps) {
             key={toast.id}
             className={`pointer-events-auto flex items-center gap-2.5 px-4 py-3 rounded-2xl shadow-2xl border text-sm font-medium animate-[slideIn_0.3s_ease-out] ${
               toast.type === 'card'
-                ? 'bg-white border-brand-blue/30 text-brand-blue'
+                ? 'bg-surface border-brand-blue/30 text-brand-blue'
                 : toast.type === 'vale'
-                ? 'bg-white border-amber-500/30 text-amber-700'
+                ? 'bg-surface border-amber-500/30 text-amber-700'
                 : toast.type === 'error'
-                ? 'bg-white border-rose-500/30 text-rose-700'
-                : 'bg-white border-primary/30 text-primary-dark'
+                ? 'bg-surface border-rose-500/30 text-rose-700'
+                : 'bg-surface border-primary/30 text-primary-dark'
             }`}
           >
             <CheckCircle className="w-4 h-4 shrink-0" />
@@ -134,8 +134,8 @@ export function QuickEntryInput({ onAddEntry, cards }: QuickEntryInputProps) {
       {/* Main Card */}
       <div className={`relative overflow-hidden rounded-3xl border transition-all duration-300 ${
         isListening 
-          ? 'bg-white border-rose-500/30 shadow-card' 
-          : 'bg-white border-transparent shadow-card'
+          ? 'bg-surface border-rose-500/30 shadow-card' 
+          : 'bg-surface border-transparent shadow-card'
       }`}>
 
         <div className="relative p-4">

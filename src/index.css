@@ -12,8 +12,53 @@
   --color-brand-blue: #0068FF;
   --color-brand-blue-dark: #0052CC;
   --color-sky-tile: #6DB6FE;
+  --color-surface: #FFFFFF;
 
   --shadow-card: 0 4px 20px rgba(9, 48, 48, 0.07);
+}
+
+:root {
+  color-scheme: light;
+  --chart-grid: rgba(9, 48, 48, 0.08);
+  --chart-axis: rgba(9, 48, 48, 0.65);
+  --chart-contrast: #093030;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --color-ink: #F1FFF3;
+  --color-mint: #052224;
+  --color-surface: #0A2E30;
+  --color-soft: #113D3F;
+  --color-primary-dark: #00D09E;
+  --color-brand-blue: #6DB6FE;
+  --color-brand-blue-dark: #6DB6FE;
+  --color-rose-700: #FB7185;
+  --color-amber-700: #FBBF24;
+  --shadow-card: 0 4px 20px rgba(0, 0, 0, 0.3);
+  --chart-grid: rgba(241, 255, 243, 0.08);
+  --chart-axis: rgba(241, 255, 243, 0.65);
+  --chart-contrast: #94A3B8;
+}
+
+/* O verde e o azul-claro continuam iguais no escuro, então o que fica sobre eles mantém as cores escuras */
+:root[data-theme="dark"] .bg-primary,
+:root[data-theme="dark"] .bg-sky-tile {
+  --color-ink: #093030;
+  --color-primary-dark: #00735C;
+  --color-brand-blue-dark: #0052CC;
+}
+
+:root[data-theme="dark"] .bg-mint,
+:root[data-theme="dark"] .bg-surface,
+:root[data-theme="dark"] .bg-soft {
+  --color-ink: #F1FFF3;
+  --color-primary-dark: #00D09E;
+  --color-brand-blue-dark: #6DB6FE;
+}
+
+:root[data-theme="dark"] .bg-brand-blue {
+  --color-brand-blue: #0068FF;
 }
 
 @layer base {

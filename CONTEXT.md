@@ -31,6 +31,10 @@ O ZimFinance 2.0 nasceu da necessidade de modernizar um controle financeiro que 
 - **Parcelas**: Cada parcela é uma linha em `card_expenses` nos meses seguintes, ligada por `installment_group_id`.
 - **Exclusão**: Encerra o cartão no mês anterior (`end_month`) e preserva o histórico.
 
+#### Tema
+- **Escolha**: Automático, Claro ou Escuro em Configurações, guardada no aparelho (`src/lib/theme.ts`).
+- **Cores**: Os tokens ficam em `src/index.css` e são redefinidos em `data-theme="dark"`. O verde mantém texto escuro nos dois temas.
+
 #### Categorias
 - **Dados**: As categorias padrão ficam em `src/lib/categories.ts`, e as criadas pelo usuário na tabela `categories`. `items` e `card_expenses` guardam a categoria; sem categoria, o lançamento conta como Outros.
 - **Sugestão**: `suggestCategory` usa o nome do lançamento. Ao mudar as regras, a classificação já feita não é alterada.
