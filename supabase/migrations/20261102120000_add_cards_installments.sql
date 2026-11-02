@@ -42,9 +42,9 @@ ALTER TABLE public.card_expenses ADD COLUMN IF NOT EXISTS installment_total INTE
 ALTER TABLE public.months ADD COLUMN IF NOT EXISTS recurring_synced BOOLEAN NOT NULL DEFAULT false;
 UPDATE public.months SET recurring_synced = true;
 
--- Converte os cartões existentes: linhas do mesmo cartão são agrupadas pelo nome,
+-- Converte os cartões existentes: linhas do mesmo cartão são agrupadas pelo nome sem acentos,
 -- usando o nome mais recente de cada grupo de recorrência.
-CREATE TEMP TABLE legacy_card_items ON COMMIT DROP AS
+CREATE TEMP TABLE legacy_card_items AS
 SELECT
     i.id,
     i.user_id,
@@ -54,10 +54,11 @@ SELECT
     i.due_day,
     i.is_recurring,
     i.created_at,
-    lower(trim(CASE
+    coalesce(i.pagamento, 0) + coalesce(i.vale, 0) AS base_amount,
+    translate(lower(trim(CASE
         WHEN i.recurring_group_id IS NOT NULL THEN first_value(i.name) OVER (PARTITION BY i.user_id, i.recurring_group_id ORDER BY i.month_id DESC)
         ELSE i.name
-    END)) AS card_key,
+    END)), 'ãáàâéêíóôõúç', 'aaaaeeiooouc') AS card_key,
     trim(CASE
         WHEN i.recurring_group_id IS NOT NULL THEN first_value(i.name) OVER (PARTITION BY i.user_id, i.recurring_group_id ORDER BY i.month_id DESC)
         ELSE i.name
@@ -69,22 +70,22 @@ INSERT INTO public.cards (id, user_id, name, closing_day, due_day, accounting_so
 SELECT
     substr(md5(user_id::text || ':' || card_key), 1, 12),
     user_id,
-    (array_agg(card_name ORDER BY month_id DESC))[1],
+    (array_agg(card_name ORDER BY month_id DESC, base_amount DESC))[1],
     (array_agg(closing_day ORDER BY month_id DESC) FILTER (WHERE closing_day BETWEEN 1 AND 31))[1],
     (array_agg(due_day ORDER BY month_id DESC) FILTER (WHERE due_day BETWEEN 1 AND 31))[1],
-    CASE WHEN (array_agg(type ORDER BY month_id DESC))[1] = 'card_vale' THEN 'vale' ELSE 'pagamento' END,
+    CASE WHEN (array_agg(type ORDER BY month_id DESC, base_amount DESC))[1] = 'card_vale' THEN 'vale' ELSE 'pagamento' END,
     min(month_id),
     -- Cartão sem uso há mais de um mês e sem recorrência fica encerrado no último mês em que apareceu
     CASE
         WHEN max(month_id) >= to_char(now() - interval '1 month', 'YYYY-MM')
-          OR coalesce((array_agg(is_recurring ORDER BY month_id DESC))[1], false) THEN NULL
+          OR coalesce((array_agg(is_recurring ORDER BY month_id DESC, base_amount DESC))[1], false) THEN NULL
         ELSE max(month_id)
     END
 FROM legacy_card_items
 GROUP BY user_id, card_key
 ON CONFLICT (id) DO NOTHING;
 
--- Se o mesmo cartão aparecer duas vezes no mês, só a primeira linha é vinculada
+-- Se o mesmo cartão aparecer duas vezes no mês, só a linha de maior valor é vinculada
 UPDATE public.items i
 SET card_id = linked.card_id
 FROM (
@@ -93,7 +94,7 @@ FROM (
         SELECT
             id,
             substr(md5(user_id::text || ':' || card_key), 1, 12) AS card_id,
-            row_number() OVER (PARTITION BY user_id, card_key, month_id ORDER BY created_at, id) AS position
+            row_number() OVER (PARTITION BY user_id, card_key, month_id ORDER BY base_amount DESC, created_at, id) AS position
         FROM legacy_card_items
     ) ranked
     WHERE position = 1
@@ -105,3 +106,5 @@ SET closing_day = coalesce(i.closing_day, c.closing_day),
     due_day = coalesce(i.due_day, c.due_day)
 FROM public.cards c
 WHERE i.card_id = c.id;
+
+DROP TABLE legacy_card_items;

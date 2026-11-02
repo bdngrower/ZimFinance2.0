@@ -479,11 +479,14 @@ export default function App() {
 
       if (!monthData) {
         const [y, m] = share.source_month_id.split('-');
-        await supabase.from('months').insert({
-          id: share.source_month_id,
-          year: parseInt(y, 10),
-          month_name: MONTH_NAMES[parseInt(m, 10) - 1],
-        });
+        await supabase.from('months').upsert(
+          {
+            id: share.source_month_id,
+            year: parseInt(y, 10),
+            month_name: MONTH_NAMES[parseInt(m, 10) - 1],
+          },
+          { onConflict: 'id', ignoreDuplicates: true },
+        );
       }
 
       const isPagamento = share.expense_type.includes('pagamento');
@@ -760,17 +763,20 @@ export default function App() {
       .single();
 
     if (!monthData && monthError?.code === 'PGRST116') {
+      // O id do mês é único entre usuários: se outro já criou este mês, nada é inserido
       const { data: newMonth } = await supabase
         .from('months')
-        .insert({
-          id: currentMonthId,
-          year: currentYear,
-          month_name: MONTH_NAMES[currentMonthIndex],
-        })
-        .select()
-        .single();
+        .upsert(
+          {
+            id: currentMonthId,
+            year: currentYear,
+            month_name: MONTH_NAMES[currentMonthIndex],
+          },
+          { onConflict: 'id', ignoreDuplicates: true },
+        )
+        .select();
 
-      monthData = newMonth;
+      monthData = newMonth?.[0] ?? null;
 
       setIncome({ pagamento: 0, vale: 0, ferias: 0, decimoTerceiro: 0 });
       await copyRecurringItems();
@@ -962,11 +968,14 @@ export default function App() {
 
     if (!monthData) {
       const [y, m] = monthId.split('-');
-      await supabase.from('months').insert({
-        id: monthId,
-        year: parseInt(y, 10),
-        month_name: MONTH_NAMES[parseInt(m, 10) - 1],
-      });
+      await supabase.from('months').upsert(
+        {
+          id: monthId,
+          year: parseInt(y, 10),
+          month_name: MONTH_NAMES[parseInt(m, 10) - 1],
+        },
+        { onConflict: 'id', ignoreDuplicates: true },
+      );
     }
   };
 
